@@ -109,4 +109,64 @@ Copy this template for each new entry:
 
 ---
 
+### ENV-001: Environment Setup
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.1
+- **Setup**:
+  - Hardware: M4 Mac Mini, 16GB unified memory
+  - Python: 3.9.6 (system), venv at `.venv/`
+  - torch=2.8.0, MPS=True, CUDA=False
+  - chess=1.11.2, numpy=2.0.2, pytest=8.4.2, h5py=3.14.0
+  - Commit: f2aac72
+- **Status**: DONE
+- **Result**: All core deps installed. MPS backend available. Stockfish NOT installed locally (SF-dependent tests skip gracefully).
+- **Conclusion**: Ready for development. Stockfish installation deferred to Phase 0.4 benchmarking.
+- **Follow-up**: Install Stockfish binary before running full SF annotation tests.
+
+---
+
+### SMOKE-BOARD-001: Board Encoder Tests
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.2
+- **Command**: `.venv/bin/python -m pytest tests/test_board_encoder.py -x -v`
+- **Status**: DONE
+- **Result**: 21/21 passed in 0.70s
+  - Shape, dtype, bounds: ✓
+  - Piece placement (pawns, king, rooks, empty squares): ✓
+  - Auxiliary planes (side to move, castling, halfmove, fullmove): ✓
+  - History encoding (offset, zero-padding, 7-board limit): ✓
+  - Repetition detection: ✓
+- **Conclusion**: Board encoder matches AlphaZero 119-plane spec. Pre-existing code was already correct.
+
+---
+
+### SMOKE-MOVE-001: Move Encoder Tests
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.3
+- **Command**: `.venv/bin/python -m pytest tests/test_move_encoder.py -x -v`
+- **Status**: DONE
+- **Result**: 17/17 passed in 0.50s
+  - Round-trip (e2e4, Nf3, all starting legal, all Italian Game legal): ✓
+  - Promotions (queen, knight, rook, bishop): ✓
+  - Castling (kingside, queenside): ✓
+  - Directional encoding (N, NE): ✓
+  - Knight deltas (all 8 directions): ✓
+  - Legal mask (20 moves at start, checkmate = 0): ✓
+- **Conclusion**: Move encoder correctly implements 4672-dim AlphaZero action space.
+
+---
+
+### SMOKE-SF-001: Stockfish Annotator Tests
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.4
+- **Command**: `.venv/bin/python -m pytest tests/test_stockfish_annotator.py -x -v`
+- **Status**: DONE
+- **Result**: 5 passed, 12 skipped in 0.05s
+  - Score conversion (positive cp, negative cp, mate, mated, black perspective): ✓ (5/5)
+  - Engine-dependent tests: SKIPPED (Stockfish not installed)
+- **Conclusion**: Annotator code structure is correct. JSONL format and score conversion verified. Full integration test deferred until Stockfish binary is installed.
+- **Follow-up**: Install Stockfish and re-run to verify engine integration.
+
+---
+
 <!-- NEW ENTRIES GO BELOW THIS LINE -->

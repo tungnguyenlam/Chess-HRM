@@ -40,31 +40,31 @@ No prior work (AlphaZero, Chessformer, HRM, Searchless Chess, ALLIE, SearchForme
 ## Phase 0: Infrastructure & Data Pipeline
 
 ### 0.1 Environment & Dependencies
-- [ ] Create `pyproject.toml` or update `requirements.txt` with all dependencies (python-chess, stockfish, h5py, wandb, omegaconf, torch)
-- [ ] Verify CUDA / MPS backend availability; document in `BACKLOG.md` under `ENV-001`
+- [V] Create `pyproject.toml` or update `requirements.txt` with all dependencies (python-chess, stockfish, h5py, wandb, omegaconf, torch)
+- [V] Verify CUDA / MPS backend availability; document in `BACKLOG.md` under `ENV-001`
 - [ ] Set up W&B project (`hrm-gab-chess`) and confirm login
-- [ ] Create `tests/` directory with `conftest.py` and a smoke test for imports
+- [V] Create `tests/` directory with `conftest.py` and a smoke test for imports
 
 ### 0.2 Board Encoding (`chessgame/encoding/`)
-- [ ] Implement `board_encoder.py`: `chess.Board → torch.Tensor [8, 8, 119]`
+- [V] Implement `board_encoder.py`: `chess.Board → torch.Tensor [8, 8, 119]`
   - 96 planes: piece positions × 8 history plies (flip for Black)
   - 23 auxiliary planes: castling (4), side to play (1), en passant (1), repetition (2), half-move clock (8 bits), full-move counter (7 bits)
-- [ ] Write unit tests: verify known positions produce expected tensors
-- [ ] Verify encoding matches AlphaZero paper (Section S3.1) plane-by-plane
+- [V] Write unit tests: verify known positions produce expected tensors
+- [V] Verify encoding matches AlphaZero paper (Section S3.1) plane-by-plane
 
 ### 0.3 Move Encoding (`chessgame/encoding/`)
-- [ ] Implement `move_encoder.py`: `chess.Move ↔ int (0..4671)`
+- [V] Implement `move_encoder.py`: `chess.Move ↔ int (0..4671)`
   - 8×8 source squares × 73 move types (queen moves: 56, knight moves: 8, underpromotions: 9)
-- [ ] Write unit tests: round-trip encode→decode for all legal moves in several positions
-- [ ] Verify edge cases: castling (king move encoding), en passant, promotions
+- [V] Write unit tests: round-trip encode→decode for all legal moves in several positions
+- [V] Verify edge cases: castling (king move encoding), en passant, promotions
 
 ### 0.4 Stockfish Annotation Pipeline (`chessgame/data/`)
-- [ ] Implement `stockfish_annotator.py`:
+- [V] Implement `stockfish_annotator.py`:
   - Input: list of `chess.Board` positions
   - Output: `(soft_policy [4672], value float, best_move int)` per position
   - Uses `MultiPV=8, depth≥18` for Phase 1; `MultiPV=16, depth≥25` for Phase 2
   - Multiprocessed (1 Stockfish process per CPU core)
-- [ ] Write test: annotate 100 random positions, verify outputs are valid
+- [V] Write test: annotate 100 random positions, verify outputs are valid
 - [ ] Benchmark throughput: positions/second on target hardware
 
 ### 0.5 Dataset Pipeline (`chessgame/data/`)

@@ -1,0 +1,105 @@
+# Chess HRM hyperparameters
+# Loaded independently (not wired into the upstream Hydra tree).
+# Usage: omegaconf.OmegaConf.load("config/chess.yaml")
+
+full:
+  # Model architecture (~28M params)
+  hidden_size: 512
+  num_heads: 8
+  expansion: 4.0
+  H_layers: 4
+  L_layers: 4
+  H_cycles: 3
+  L_cycles: 6
+  halt_max_steps: 8
+  halt_exploration_prob: 0.1
+  # Fixed chess fields
+  seq_len: 65
+  board_input_dim: 119
+  policy_size: 4672
+  vocab_size: 1
+  num_puzzle_identifiers: 1
+  puzzle_emb_ndim: 0
+  pos_encodings: rope
+
+  # Phase 2 supervised
+  supervised:
+    batch_size: 256
+    epochs: 5
+    lr: 1.0e-4
+    weight_decay: 1.0e-2
+    grad_clip: 1.0
+    min_depth: 18
+    warmup_steps: 500
+
+  # Phase 3 distillation
+  distill:
+    batch_size: 128
+    epochs: 2
+    lr: 3.0e-5
+    weight_decay: 1.0e-2
+    grad_clip: 1.0
+    min_depth: 12
+    temperature: 100.0
+
+  # Phase 4 RL
+  rl:
+    batch_size: 256
+    lr: 1.0e-5
+    weight_decay: 1.0e-2
+    grad_clip: 1.0
+    replay_buffer_capacity: 500000
+    mcts_simulations: 800
+    mcts_batch_size: 8
+    act_loss_weight: 0.1
+    stockfish_kl_start: 0.3
+    stockfish_kl_steps: 50000   # anneal to 0 over this many steps
+
+mac_mini:
+  # Reduced model (~7M params) for local prototyping on Apple Silicon
+  hidden_size: 256
+  num_heads: 4
+  expansion: 4.0
+  H_layers: 2
+  L_layers: 2
+  H_cycles: 2
+  L_cycles: 4
+  halt_max_steps: 4
+  halt_exploration_prob: 0.1
+  seq_len: 65
+  board_input_dim: 119
+  policy_size: 4672
+  vocab_size: 1
+  num_puzzle_identifiers: 1
+  puzzle_emb_ndim: 0
+  pos_encodings: rope
+
+  supervised:
+    batch_size: 8
+    accum_steps: 16             # effective batch = 128
+    epochs: 5
+    lr: 1.0e-4
+    weight_decay: 1.0e-2
+    grad_clip: 1.0
+    min_depth: 18
+    warmup_steps: 200
+
+  distill:
+    batch_size: 8
+    accum_steps: 8
+    epochs: 2
+    lr: 3.0e-5
+    weight_decay: 1.0e-2
+    grad_clip: 1.0
+    min_depth: 12
+    temperature: 100.0
+
+  rl:
+    batch_size: 32
+    lr: 1.0e-5
+    replay_buffer_capacity: 50000
+    mcts_simulations: 200       # fewer sims for speed on CPU
+    mcts_batch_size: 4
+    act_loss_weight: 0.1
+    stockfish_kl_start: 0.3
+    stockfish_kl_steps: 10000

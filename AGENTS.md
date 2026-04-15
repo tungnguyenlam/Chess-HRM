@@ -180,14 +180,31 @@ Simplified encodings (e.g., 8×8×14 without history) produce a fundamentally br
 3. **Every hyperparameter** must be in `config/chess.yaml`, not hardcoded.
 4. **Every experiment** must be logged in `BACKLOG.md` before AND after running.
 
-### 5.4 After Completing a Task
+### 5.4 Testing Gate (MANDATORY)
 
-1. Mark the item `[V]` in `PLAN.md`
-2. Log results in `BACKLOG.md` (see format below)
-3. Run any existing tests: `python -m pytest tests/` (if tests exist)
+**No step in `PLAN.md` may be marked `[V]` until its tests pass.**
+
+1. Every implementation step must have a corresponding test in `tests/`.
+2. Run `python -m pytest tests/ -x -v` after completing a step. The `-x` flag stops on first failure.
+3. If tests fail, fix the code. Do NOT mark the step `[V]` and move on.
+4. If a step has no natural test (e.g., "download dataset"), create a validation check (e.g., verify file exists, row count matches, sample decoding round-trips).
+
+```
+# Gate check before marking step done:
+python -m pytest tests/ -x -v
+
+# If targeting a specific step's tests:
+python -m pytest tests/test_board_encoder.py -x -v
+```
+
+### 5.5 After Completing a Task
+
+1. Verify tests pass (section 5.4)
+2. Mark the item `[V]` in `PLAN.md`
+3. Log results in `BACKLOG.md` (see format below)
 4. Update `config/chess.yaml` if new hyperparameters were introduced
 
-### 5.5 Experiment Logging Protocol
+### 5.6 Experiment Logging Protocol
 
 **Before running an experiment**, add an entry to `BACKLOG.md`:
 
