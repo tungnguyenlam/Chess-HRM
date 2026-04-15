@@ -68,12 +68,12 @@ No prior work (AlphaZero, Chessformer, HRM, Searchless Chess, ALLIE, SearchForme
 - [ ] Benchmark throughput: positions/second on target hardware
 
 ### 0.5 Dataset Pipeline (`chessgame/data/`)
-- [ ] Implement `lichess_dataset.py`:
+- [V] Implement `lichess_dataset.py`:
   - Downloads/loads Lichess Elite DB (PGN files)
   - Filters: min Elo 2200, min time control
   - Streams positions with history (8 plies preceding each position)
   - Stores as HDF5 or memory-mapped numpy arrays
-- [ ] Implement `chess_dataloader.py`:
+- [V] Implement `chess_dataloader.py` / `stockfish_dataset.py`:
   - PyTorch `Dataset` and `DataLoader` wrapping above
   - Fields: `inputs [B,8,8,119]`, `policy_target [B,4672]`, `value_target [B,1]`
   - Add `puzzle_identifiers` field (dummy zeros, required by HRM carry init)
