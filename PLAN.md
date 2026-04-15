@@ -81,17 +81,18 @@ No prior work (AlphaZero, Chessformer, HRM, Searchless Chess, ALLIE, SearchForme
 - [ ] Generate Phase 2 dataset: **2M positions** with deeper Stockfish annotations
 
 ### 0.6 Evaluation Infrastructure (`chessgame/eval/`)
-- [ ] Implement `arena.py`:
+- [V] Implement `arena.py` / `evaluate_chess.py`:
   - UCI protocol wrapper for our model
   - Tournament runner: model vs Stockfish at fixed depths (1-20)
   - Elo estimation from game results (BayesElo or Ordo)
-- [ ] Implement `puzzles.py`:
+- [V] Implement `puzzles.py`:
   - Load Lichess puzzle database (CSV)
   - Feed position → model → check if best move matches puzzle solution
   - Report accuracy by puzzle rating bucket
-- [ ] Implement `interpretability.py` (can be done later, scaffolding now):
-  - Placeholder for GAB visualization
-  - Placeholder for ACT depth histogram
+- [V] Implement `interpretability.py` (scaffolding):
+  - GABSnapshot, ACTDepthRecord dataclasses
+  - Game phase classifier
+  - Placeholder for GAB visualization and ACT depth histogram
 
 ---
 
