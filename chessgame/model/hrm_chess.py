@@ -1,14 +1,17 @@
 """
-Chess adapter for HierarchicalReasoningModel_ACTV1.
+Chess adapter for HierarchicalReasoningModel_ACTV1 with Geometric Attention Bias.
 
 HRMChessInner  — subclasses the upstream inner model, replaces token embedding
                  with board projection + 2D RoPE, overrides forward to expose z_H.
+                 GAB is computed per H-cycle from evolving z_H.
 
 HRMChess       — standalone nn.Module that owns HRMChessInner and re-implements
                  the ACT outer loop (copied verbatim from the upstream outer wrapper)
                  so we keep full control without double-instantiation.
+
+Implements: PLAN.md steps 1.2, 1.3
 """
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -22,13 +25,17 @@ from chessmodels.layers import CastedLinear
 
 from chessgame.model.hrm_chess_config import HRMChessConfig
 from chessgame.model.rope_2d import ChessRoPE2D
+from chessgame.model.gab import GeometricAttentionBias
+from chessgame.model.attention_bias import BlockWithBias, ReasoningModuleWithBias
 
 
 class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
     """
     Replaces embed_tokens + lm_head with board projection + chess heads.
     Overrides forward entirely to use 2D RoPE and expose z_H directly.
-    H_level, L_level, H_init, L_init, q_head are inherited unchanged.
+    Replaces H/L levels with GAB-aware ReasoningModuleWithBias.
+
+    H_init, L_init, q_head are inherited unchanged.
     """
 
     def __init__(self, config: HRMChessConfig) -> None:
@@ -41,6 +48,16 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
             del self.rotary_emb
         if hasattr(self, "embed_pos"):
             del self.embed_pos
+
+        # Replace upstream H/L levels with GAB-aware versions
+        del self.H_level
+        del self.L_level
+        self.H_level = ReasoningModuleWithBias(
+            [BlockWithBias(config) for _ in range(config.H_layers)]
+        )
+        self.L_level = ReasoningModuleWithBias(
+            [BlockWithBias(config) for _ in range(config.L_layers)]
+        )
 
         # Board input: project each of 64 squares from 119 planes to hidden_size
         self.board_proj = CastedLinear(config.board_input_dim, config.hidden_size, False)
@@ -61,6 +78,21 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
             CastedLinear(256, 1, True),
             nn.Tanh(),
         )
+
+        # Geometric Attention Bias module
+        gab_compress = getattr(config, 'gab_compress_dim', 128)
+        gab_static = getattr(config, 'gab_static_templates', True)
+        gab_enabled = getattr(config, 'gab_enabled', True)
+
+        self.gab_enabled = gab_enabled
+        if gab_enabled:
+            self.gab = GeometricAttentionBias(
+                hidden_size=config.hidden_size,
+                num_heads=config.num_heads,
+                seq_len=config.seq_len,
+                compress_dim=gab_compress,
+                use_static_templates=gab_static,
+            )
 
     def forward(
         self,
@@ -87,25 +119,35 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         # ---------------------------------------------------------------
         # H/L reasoning cycles — one-step gradient trick (from upstream)
         # All iterations except the last run inside torch.no_grad().
+        # GAB is recomputed from z_H at the start of each H-cycle.
         # ---------------------------------------------------------------
         with torch.no_grad():
             z_H, z_L = carry.z_H, carry.z_L
 
             for _H in range(self.config.H_cycles):
+                # Compute GAB from current z_H (evolves each cycle)
+                gab_bias = self.gab(z_H) if self.gab_enabled else None
+
                 for _L in range(self.config.L_cycles):
                     last_iter = (_H == self.config.H_cycles - 1) and \
                                 (_L == self.config.L_cycles - 1)
                     if not last_iter:
-                        z_L = self.L_level(z_L, z_H + input_embeddings, **seq_info)
+                        z_L = self.L_level(z_L, z_H + input_embeddings,
+                                           attn_bias=gab_bias, **seq_info)
 
                 if _H != self.config.H_cycles - 1:
-                    z_H = self.H_level(z_H, z_L, **seq_info)
+                    z_H = self.H_level(z_H, z_L,
+                                       attn_bias=gab_bias, **seq_info)
 
         assert not z_H.requires_grad and not z_L.requires_grad
 
         # 1-step grad (final iteration, gradients flow here)
-        z_L = self.L_level(z_L, z_H + input_embeddings, **seq_info)
-        z_H = self.H_level(z_H, z_L, **seq_info)
+        # Recompute GAB with gradient tracking
+        gab_bias_grad = self.gab(z_H) if self.gab_enabled else None
+        z_L = self.L_level(z_L, z_H + input_embeddings,
+                           attn_bias=gab_bias_grad, **seq_info)
+        z_H = self.H_level(z_H, z_L,
+                           attn_bias=gab_bias_grad, **seq_info)
 
         new_carry = HierarchicalReasoningModel_ACTV1InnerCarry(
             z_H=z_H.detach(),

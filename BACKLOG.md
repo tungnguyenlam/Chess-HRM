@@ -169,4 +169,59 @@ Copy this template for each new entry:
 
 ---
 
+### SMOKE-DATA-001: Dataset Pipeline Tests
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.5
+- **Command**: `.venv/bin/python -m pytest tests/test_data_pipeline.py -x -v`
+- **Status**: DONE
+- **Result**: 16/16 passed in 0.93s
+  - LichessEliteDataset (load, filter, shapes, value range, move validity): ✓ (6/6)
+  - StockfishSoftDataset (load, shapes, soft policy distribution, bounds): ✓ (5/5)
+  - ReplayBuffer (empty, add, circular overwrite, sample shapes, clamp): ✓ (5/5)
+- **Conclusion**: All dataset components work correctly with synthetic JSONL fixtures.
+
+---
+
+### SMOKE-EVAL-001: Evaluation Infrastructure Tests
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.6
+- **Command**: `.venv/bin/python -m pytest tests/test_eval.py -x -v`
+- **Status**: DONE
+- **Result**: 15/15 passed in 0.87s
+  - Puzzle CSV parsing (valid, setup move, invalid, single move): ✓ (4/4)
+  - PuzzleEvaluator (perfect model, wrong model, max_puzzles, rating buckets): ✓ (4/4)
+  - PuzzleReport (empty, accuracy calc): ✓ (2/2)
+  - Interpretability (game phase classifier, dataclasses): ✓ (5/5)
+- **Conclusion**: Evaluation pipeline ready. Arena eval in evaluate_chess.py; puzzle eval in chessgame/eval/puzzles.py.
+
+---
+
+### SMOKE-GAB-001: GAB Module + Full Model Smoke Test
+- **Date**: 2026-04-16
+- **PLAN.md step**: 1.1, 1.2, 1.3, 1.5
+- **Command**: `.venv/bin/python -m pytest tests/test_gab_model.py -x -v`
+- **Status**: DONE
+- **Result**: 18/18 passed in 1.55s
+  - GAB module (shape, dtype, gradient, NaN, zero-init, static toggle, differentiation, batch independence): ✓ (8/8)
+  - AttentionWithBias (bias changes output, zero-bias matches no-bias, gradient through bias): ✓ (3/3)
+  - Full model smoke (forward shapes, backward, GAB gradients, no-GAB ablation, no NaN, param count, deterministic): ✓ (7/7)
+- **Architecture decisions**:
+  - GAB uses AdaptiveAvgPool1d + MLP (not full flatten) to keep params manageable
+  - AttentionWithBias uses manual QK^T+bias+softmax when bias present; SDPA fallback when None
+  - ReasoningModuleWithBias subclasses pass attn_bias through to blocks
+  - Upstream hrm_act_v1.py NOT modified (hard invariant preserved)
+- **Conclusion**: HRM-GAB architecture fully operational. One-step gradient trick works with GAB. Ready for Phase 2 training.
+- **Follow-up**: Begin supervised training loop implementation.
+
+---
+
+### FULL-REGRESSION-001: Complete Test Suite
+- **Date**: 2026-04-16
+- **Command**: `.venv/bin/python -m pytest tests/ -x -v`
+- **Status**: DONE
+- **Result**: 92 passed, 12 skipped in 1.10s
+- **Conclusion**: No regressions. All skips are Stockfish-dependent (expected).
+
+---
+
 <!-- NEW ENTRIES GO BELOW THIS LINE -->

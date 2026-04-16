@@ -5,12 +5,20 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
     board_input_dim: int = 119
     policy_size: int = 4672
 
+    # GAB config
+    gab_enabled: bool = True
+    gab_compress_dim: int = 128
+    gab_static_templates: bool = True
+
     @classmethod
     def full(cls) -> "HRMChessConfig":
-        """Server-scale config (~28M params)."""
+        """Server-scale config (~30M params with GAB)."""
         return cls(
             board_input_dim=119,
             policy_size=4672,
+            gab_enabled=True,
+            gab_compress_dim=128,
+            gab_static_templates=True,
             batch_size=256,
             seq_len=65,           # 64 squares + 1 CLS
             vocab_size=1,         # unused — chess has no token vocab
@@ -30,10 +38,13 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
 
     @classmethod
     def mac_mini(cls) -> "HRMChessConfig":
-        """Reduced config for local development (~7M params)."""
+        """Reduced config for local development (~7M params with GAB)."""
         return cls(
             board_input_dim=119,
             policy_size=4672,
+            gab_enabled=True,
+            gab_compress_dim=64,
+            gab_static_templates=True,
             batch_size=8,
             seq_len=65,
             vocab_size=1,
@@ -50,3 +61,11 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
             halt_max_steps=4,
             halt_exploration_prob=0.1,
         )
+
+    @classmethod
+    def mac_mini_no_gab(cls) -> "HRMChessConfig":
+        """Ablation config: HRM without GAB (RoPE only)."""
+        cfg = cls.mac_mini()
+        cfg.gab_enabled = False
+        return cfg
+

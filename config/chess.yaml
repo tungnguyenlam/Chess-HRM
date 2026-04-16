@@ -22,6 +22,12 @@ full:
   puzzle_emb_ndim: 0
   pos_encodings: rope
 
+  # GAB (Geometric Attention Bias)
+  gab:
+    enabled: true
+    compress_dim: 128
+    static_templates: true
+
   # Phase 2 supervised
   supervised:
     batch_size: 256
@@ -73,6 +79,12 @@ mac_mini:
   num_puzzle_identifiers: 1
   puzzle_emb_ndim: 0
   pos_encodings: rope
+
+  # GAB (Geometric Attention Bias)
+  gab:
+    enabled: true
+    compress_dim: 64
+    static_templates: true
 
   supervised:
     batch_size: 8
