@@ -6,7 +6,7 @@
 /cache/
 # data
 /data/
-./data-lichess/
+/data-lichess/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
