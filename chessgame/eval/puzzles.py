@@ -10,6 +10,7 @@ Usage:
 
 Implements: PLAN.md step 0.6
 """
+
 from __future__ import annotations
 
 import csv
@@ -17,15 +18,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 import chess
-import torch
-
-from chessgame.encoding.board_encoder import encode_board
-from chessgame.encoding.move_encoder import decode_move, legal_mask
 
 
 @dataclass
 class PuzzleResult:
     """Result of evaluating a single puzzle."""
+
     puzzle_id: str
     rating: int
     correct: bool
@@ -36,6 +34,7 @@ class PuzzleResult:
 @dataclass
 class PuzzleReport:
     """Aggregate puzzle evaluation results."""
+
     total: int = 0
     correct: int = 0
     results: List[PuzzleResult] = field(default_factory=list)
@@ -56,7 +55,9 @@ class PuzzleReport:
         return {k: sum(v) / len(v) for k, v in sorted(buckets.items())}
 
 
-def parse_puzzle_csv_line(row: dict) -> Optional[Tuple[chess.Board, chess.Move, int, str]]:
+def parse_puzzle_csv_line(
+    row: dict,
+) -> Optional[Tuple[chess.Board, chess.Move, int, str]]:
     """
     Parse one row from the Lichess puzzle CSV.
 
@@ -98,7 +99,11 @@ class PuzzleEvaluator:
         self.get_model_move = get_model_move
 
     def evaluate_one(
-        self, board: chess.Board, expected: chess.Move, rating: int, puzzle_id: str,
+        self,
+        board: chess.Board,
+        expected: chess.Move,
+        rating: int,
+        puzzle_id: str,
     ) -> PuzzleResult:
         """Evaluate a single puzzle."""
         model_move = self.get_model_move(board)
@@ -112,7 +117,9 @@ class PuzzleEvaluator:
         )
 
     def evaluate_file(
-        self, csv_path: str, max_puzzles: Optional[int] = None,
+        self,
+        csv_path: str,
+        max_puzzles: Optional[int] = None,
     ) -> PuzzleReport:
         """Evaluate puzzles from a Lichess puzzle CSV file."""
         report = PuzzleReport()

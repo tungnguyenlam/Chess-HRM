@@ -6,10 +6,12 @@ import torch.nn.functional as F
 
 try:
     from flash_attn_interface import flash_attn_func  # type: ignore[import]
+
     _FLASH_ATTN = True
 except ImportError:
     try:
         from flash_attn import flash_attn_func  # type: ignore[import]
+
         _FLASH_ATTN = True
     except ImportError:
         _FLASH_ATTN = False
@@ -31,7 +33,9 @@ def rotate_half(x: torch.Tensor):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
+def apply_rotary_pos_emb(
+    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+):
     # q, k: [bs, seq_len, num_heads, head_dim]
     # cos, sin: [seq_len, head_dim]
     orig_dtype = q.dtype
@@ -45,38 +49,45 @@ def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, si
 
 
 class CastedLinear(nn.Module):
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 bias: bool):
+    def __init__(self, in_features: int, out_features: int, bias: bool):
         super().__init__()
         # Truncated LeCun normal init
         self.weight = nn.Parameter(
-            trunc_normal_init_(torch.empty((out_features, in_features)), std=1.0 / (in_features ** 0.5))
+            trunc_normal_init_(
+                torch.empty((out_features, in_features)), std=1.0 / (in_features**0.5)
+            )
         )
         self.bias = None
         if bias:
             # Zero init bias
-            self.bias = nn.Parameter(torch.zeros((out_features, )))
+            self.bias = nn.Parameter(torch.zeros((out_features,)))
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return F.linear(input, self.weight.to(input.dtype), bias=self.bias.to(input.dtype) if self.bias is not None else None)
+        return F.linear(
+            input,
+            self.weight.to(input.dtype),
+            bias=self.bias.to(input.dtype) if self.bias is not None else None,
+        )
 
 
 class CastedEmbedding(nn.Module):
-    def __init__(self,
-                 num_embeddings: int,
-                 embedding_dim: int,
-                 init_std: float,
-                 cast_to: torch.dtype):
+    def __init__(
+        self,
+        num_embeddings: int,
+        embedding_dim: int,
+        init_std: float,
+        cast_to: torch.dtype,
+    ):
         super().__init__()
         self.cast_to = cast_to
 
         # Truncated LeCun normal init
         self.embedding_weight = nn.Parameter(
-            trunc_normal_init_(torch.empty((num_embeddings, embedding_dim)), std=init_std)
+            trunc_normal_init_(
+                torch.empty((num_embeddings, embedding_dim)), std=init_std
+            )
         )
-        
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return F.embedding(input, self.embedding_weight.to(self.cast_to))
 
@@ -86,7 +97,9 @@ class RotaryEmbedding(nn.Module):
         super().__init__()
 
         # RoPE
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim))
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim)
+        )
         t = torch.arange(max_position_embeddings, dtype=torch.float32, device=device)
         freqs = torch.outer(t, inv_freq)
 
@@ -100,7 +113,9 @@ class RotaryEmbedding(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, hidden_size, head_dim, num_heads, num_key_value_heads, causal=False):
+    def __init__(
+        self, hidden_size, head_dim, num_heads, num_key_value_heads, causal=False
+    ):
         super().__init__()
 
         self.hidden_size = hidden_size
@@ -110,7 +125,11 @@ class Attention(nn.Module):
         self.num_key_value_heads = num_key_value_heads
         self.causal = causal
 
-        self.qkv_proj = CastedLinear(self.hidden_size, (self.num_heads + 2 * self.num_key_value_heads) * self.head_dim, bias=False)
+        self.qkv_proj = CastedLinear(
+            self.hidden_size,
+            (self.num_heads + 2 * self.num_key_value_heads) * self.head_dim,
+            bias=False,
+        )
         self.o_proj = CastedLinear(self.output_size, self.hidden_size, bias=False)
 
     def forward(self, cos_sin: CosSin, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -120,10 +139,15 @@ class Attention(nn.Module):
         qkv = self.qkv_proj(hidden_states)
 
         # Split head
-        qkv = qkv.view(batch_size, seq_len, self.num_heads + 2 * self.num_key_value_heads, self.head_dim)
-        query = qkv[:, :, :self.num_heads]
-        key = qkv[:, :, self.num_heads: self.num_heads + self.num_key_value_heads]
-        value = qkv[:, :, self.num_heads + self.num_key_value_heads:]
+        qkv = qkv.view(
+            batch_size,
+            seq_len,
+            self.num_heads + 2 * self.num_key_value_heads,
+            self.head_dim,
+        )
+        query = qkv[:, :, : self.num_heads]
+        key = qkv[:, :, self.num_heads : self.num_heads + self.num_key_value_heads]
+        value = qkv[:, :, self.num_heads + self.num_key_value_heads :]
 
         # RoPE
         if cos_sin is not None:
@@ -137,11 +161,13 @@ class Attention(nn.Module):
                 attn_output = attn_output[0]
         else:
             # Fallback for MPS / CPU (no FlashAttention)
-            q = query.transpose(1, 2)   # [bs, num_heads, seq_len, head_dim]
+            q = query.transpose(1, 2)  # [bs, num_heads, seq_len, head_dim]
             k = key.transpose(1, 2)
             v = value.transpose(1, 2)
             attn_output = F.scaled_dot_product_attention(q, k, v, is_causal=self.causal)
-            attn_output = attn_output.transpose(1, 2)  # [bs, seq_len, num_heads, head_dim]
+            attn_output = attn_output.transpose(
+                1, 2
+            )  # [bs, seq_len, num_heads, head_dim]
 
         attn_output = attn_output.view(batch_size, seq_len, self.output_size)  # type: ignore
         return self.o_proj(attn_output)
@@ -153,7 +179,7 @@ class SwiGLU(nn.Module):
         inter = _find_multiple(round(expansion * hidden_size * 2 / 3), 256)
 
         self.gate_up_proj = CastedLinear(hidden_size, inter * 2, bias=False)
-        self.down_proj    = CastedLinear(inter, hidden_size, bias=False)
+        self.down_proj = CastedLinear(inter, hidden_size, bias=False)
 
     def forward(self, x):
         gate, up = self.gate_up_proj(x).chunk(2, dim=-1)

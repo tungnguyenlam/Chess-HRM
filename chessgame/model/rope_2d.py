@@ -10,6 +10,7 @@ The head_dim cos/sin tensor is split into two halves:
 This produces a (cos, sin) CosSin tuple of shape [65, head_dim] that drops
 directly into the upstream apply_rotary_pos_emb without modifying layers.py.
 """
+
 import torch
 import torch.nn as nn
 
@@ -24,22 +25,24 @@ class ChessRoPE2D(nn.Module):
 
         # Square coordinates: row varies slowly, file varies fast
         rows = torch.arange(8).repeat_interleave(8)  # [64]: 0,0,...,0,1,1,...,7
-        cols = torch.arange(8).repeat(8)             # [64]: 0,1,...,7,0,1,...,7
+        cols = torch.arange(8).repeat(8)  # [64]: 0,1,...,7,0,1,...,7
 
         # CLS token: assign (row=0, col=0) — neutral position
         all_rows = torch.cat([torch.zeros(1, dtype=torch.long), rows])  # [65]
         all_cols = torch.cat([torch.zeros(1, dtype=torch.long), cols])  # [65]
 
         # Inverse frequencies for half dimensions (standard RoPE formula)
-        inv_freq = 1.0 / (base ** (torch.arange(0, half, 2, dtype=torch.float32) / half))
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, half, 2, dtype=torch.float32) / half)
+        )
 
         # Row embedding: [65, half]
-        row_freqs = torch.outer(all_rows.float(), inv_freq)   # [65, half//2]
-        row_emb = torch.cat([row_freqs, row_freqs], dim=-1)   # [65, half]
+        row_freqs = torch.outer(all_rows.float(), inv_freq)  # [65, half//2]
+        row_emb = torch.cat([row_freqs, row_freqs], dim=-1)  # [65, half]
 
         # Col embedding: [65, half]
-        col_freqs = torch.outer(all_cols.float(), inv_freq)   # [65, half//2]
-        col_emb = torch.cat([col_freqs, col_freqs], dim=-1)   # [65, half]
+        col_freqs = torch.outer(all_cols.float(), inv_freq)  # [65, half//2]
+        col_emb = torch.cat([col_freqs, col_freqs], dim=-1)  # [65, half]
 
         # Concatenate to [65, head_dim]
         emb = torch.cat([row_emb, col_emb], dim=-1)

@@ -3,6 +3,14 @@
 > **Read this file FIRST before touching any code.**
 > This document orients you to the codebase, establishes workflow rules, and defines how to behave like a rigorous researcher — not a code monkey.
 
+# Reasoning & Problem-Solving Standards
+
+1. **Decompose First**: For non-trivial tasks, break the problem into logical sub-steps.
+2. **Verify Assumptions**: Explicitly state any assumptions made. If data is missing, note it.
+3. **Iterative Refinement**: If generating code or architecture, consider edge cases and potential failures.
+4. **Clarity Over Cleverness**: Prefer clear, maintainable solutions over overly complex ones.
+5. **Adapt Depth**: Match the depth of your analysis to the complexity of the user’s request. Do not over-engineer simple answers.
+
 ---
 
 ## 1. Project Overview

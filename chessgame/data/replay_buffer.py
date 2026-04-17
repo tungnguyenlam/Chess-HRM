@@ -3,6 +3,7 @@ Fixed-capacity circular replay buffer for self-play RL (Phase 4).
 
 Stores (board_tensor, mcts_pi, outcome) tuples.
 """
+
 from typing import Tuple
 import random
 
@@ -34,7 +35,9 @@ class ReplayBuffer:
                 self._buf[self._pos] = s
             self._pos = (self._pos + 1) % self.capacity
 
-    def sample(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def sample(
+        self, batch_size: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns a batch of randomly sampled data.
 

@@ -11,7 +11,8 @@ HRMChess       — standalone nn.Module that owns HRMChessInner and re-implement
 
 Implements: PLAN.md steps 1.2, 1.3
 """
-from typing import Dict, Optional, Tuple
+
+from typing import Dict, Tuple, List
 
 import torch
 import torch.nn as nn
@@ -60,7 +61,9 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         )
 
         # Board input: project each of 64 squares from 119 planes to hidden_size
-        self.board_proj = CastedLinear(config.board_input_dim, config.hidden_size, False)
+        self.board_proj = CastedLinear(
+            config.board_input_dim, config.hidden_size, False
+        )
 
         # 2D positional encoding for 8x8 grid + CLS token
         self.rope_2d = ChessRoPE2D(config.hidden_size // config.num_heads)
@@ -80,9 +83,9 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         )
 
         # Geometric Attention Bias module
-        gab_compress = getattr(config, 'gab_compress_dim', 128)
-        gab_static = getattr(config, 'gab_static_templates', True)
-        gab_enabled = getattr(config, 'gab_enabled', True)
+        gab_compress = getattr(config, "gab_compress_dim", 128)
+        gab_static = getattr(config, "gab_static_templates", True)
+        gab_enabled = getattr(config, "gab_enabled", True)
 
         self.gab_enabled = gab_enabled
         if gab_enabled:
@@ -102,6 +105,7 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         HierarchicalReasoningModel_ACTV1InnerCarry,
         torch.Tensor,
         Tuple[torch.Tensor, torch.Tensor],
+        List[torch.Tensor],
     ]:
         board = batch["inputs"].to(self.forward_dtype)  # [B, 8, 8, 119]
         B = board.shape[0]
@@ -121,33 +125,40 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         # All iterations except the last run inside torch.no_grad().
         # GAB is recomputed from z_H at the start of each H-cycle.
         # ---------------------------------------------------------------
+        gab_biases = []
         with torch.no_grad():
             z_H, z_L = carry.z_H, carry.z_L
 
             for _H in range(self.config.H_cycles):
                 # Compute GAB from current z_H (evolves each cycle)
                 gab_bias = self.gab(z_H) if self.gab_enabled else None
+                if gab_bias is not None:
+                    gab_biases.append(gab_bias)
 
                 for _L in range(self.config.L_cycles):
-                    last_iter = (_H == self.config.H_cycles - 1) and \
-                                (_L == self.config.L_cycles - 1)
+                    last_iter = (_H == self.config.H_cycles - 1) and (
+                        _L == self.config.L_cycles - 1
+                    )
                     if not last_iter:
-                        z_L = self.L_level(z_L, z_H + input_embeddings,
-                                           attn_bias=gab_bias, **seq_info)
+                        z_L = self.L_level(
+                            z_L, z_H + input_embeddings, attn_bias=gab_bias, **seq_info
+                        )
 
                 if _H != self.config.H_cycles - 1:
-                    z_H = self.H_level(z_H, z_L,
-                                       attn_bias=gab_bias, **seq_info)
+                    z_H = self.H_level(z_H, z_L, attn_bias=gab_bias, **seq_info)
 
         assert not z_H.requires_grad and not z_L.requires_grad
 
         # 1-step grad (final iteration, gradients flow here)
         # Recompute GAB with gradient tracking
         gab_bias_grad = self.gab(z_H) if self.gab_enabled else None
-        z_L = self.L_level(z_L, z_H + input_embeddings,
-                           attn_bias=gab_bias_grad, **seq_info)
-        z_H = self.H_level(z_H, z_L,
-                           attn_bias=gab_bias_grad, **seq_info)
+        if gab_bias_grad is not None:
+            gab_biases.append(gab_bias_grad)
+
+        z_L = self.L_level(
+            z_L, z_H + input_embeddings, attn_bias=gab_bias_grad, **seq_info
+        )
+        z_H = self.H_level(z_H, z_L, attn_bias=gab_bias_grad, **seq_info)
 
         new_carry = HierarchicalReasoningModel_ACTV1InnerCarry(
             z_H=z_H.detach(),
@@ -160,7 +171,7 @@ class HRMChessInner(HierarchicalReasoningModel_ACTV1_Inner):
         q_logits = self.q_head(cls_hidden).to(torch.float32)  # [B, 2]
 
         # Return cls_hidden as "output"; outer HRMChess applies chess heads
-        return new_carry, cls_hidden, (q_logits[..., 0], q_logits[..., 1])
+        return new_carry, cls_hidden, (q_logits[..., 0], q_logits[..., 1]), gab_biases
 
 
 class HRMChess(nn.Module):
@@ -184,12 +195,18 @@ class HRMChess(nn.Module):
         device = batch["inputs"].device
         inner_carry = HierarchicalReasoningModel_ACTV1InnerCarry(
             z_H=torch.empty(
-                batch_size, self.config.seq_len, self.config.hidden_size,
-                dtype=self.inner.forward_dtype, device=device,
+                batch_size,
+                self.config.seq_len,
+                self.config.hidden_size,
+                dtype=self.inner.forward_dtype,
+                device=device,
             ),
             z_L=torch.empty(
-                batch_size, self.config.seq_len, self.config.hidden_size,
-                dtype=self.inner.forward_dtype, device=device,
+                batch_size,
+                self.config.seq_len,
+                self.config.hidden_size,
+                dtype=self.inner.forward_dtype,
+                device=device,
             ),
         )
         return HierarchicalReasoningModel_ACTV1Carry(
@@ -210,24 +227,28 @@ class HRMChess(nn.Module):
         new_current_data = {
             k: torch.where(
                 carry.halted.view((-1,) + (1,) * (batch[k].ndim - 1)),
-                batch[k], v,
+                batch[k],
+                v,
             )
             for k, v in carry.current_data.items()
         }
 
         # Forward inner model
-        new_inner_carry, cls_hidden, (q_halt_logits, q_continue_logits) = \
+        new_inner_carry, cls_hidden, (q_halt_logits, q_continue_logits), gab_biases = (
             self.inner(new_inner_carry, new_current_data)
+        )
 
         # Apply chess output heads
-        policy = self.inner.policy_head(cls_hidden)   # [B, 4672]
-        value = self.inner.value_head(cls_hidden)     # [B, 1]
+        policy = self.inner.policy_head(cls_hidden)  # [B, 4672]
+        value = self.inner.value_head(cls_hidden)  # [B, 1]
 
         outputs: Dict[str, torch.Tensor] = {
             "policy": policy,
             "value": value,
             "q_halt_logits": q_halt_logits,
             "q_continue_logits": q_continue_logits,
+            "gab_biases": gab_biases,
+            "halt_steps": new_steps + 1,
         }
 
         # ACT halting logic (copied verbatim from upstream outer wrapper)
@@ -240,13 +261,16 @@ class HRMChess(nn.Module):
                 halted = halted | (q_halt_logits > q_continue_logits)
 
                 min_halt_steps = (
-                    (torch.rand_like(q_halt_logits) < self.config.halt_exploration_prob)
-                    * torch.randint_like(new_steps, low=2, high=self.config.halt_max_steps + 1)
+                    torch.rand_like(q_halt_logits) < self.config.halt_exploration_prob
+                ) * torch.randint_like(
+                    new_steps, low=2, high=self.config.halt_max_steps + 1
                 )
                 halted = halted & (new_steps >= min_halt_steps)
 
                 # Bootstrap Q-continue target
-                next_q_halt, next_q_cont = self.inner(new_inner_carry, new_current_data)[-1]
+                next_q_halt, next_q_cont = self.inner(
+                    new_inner_carry, new_current_data
+                )[-2]
                 outputs["target_q_continue"] = torch.sigmoid(
                     torch.where(
                         is_last_step,

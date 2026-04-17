@@ -16,6 +16,7 @@ Plane layout (119 total):
   [117]  black queenside castling
   [118]  halfmove clock / 100
 """
+
 from typing import List
 
 import chess

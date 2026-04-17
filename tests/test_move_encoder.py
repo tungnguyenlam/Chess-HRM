@@ -1,9 +1,13 @@
 """Tests for chessgame.encoding.move_encoder — PLAN step 0.3."""
+
 import chess
 import torch
 
 from chessgame.encoding.move_encoder import (
-    encode_move, decode_move, legal_mask, NUM_MOVES,
+    encode_move,
+    decode_move,
+    legal_mask,
+    NUM_MOVES,
 )
 
 
@@ -35,7 +39,9 @@ class TestMoveEncoderRoundTrip:
             idx = encode_move(move)
             assert 0 <= idx < NUM_MOVES, f"Index out of range for {move}: {idx}"
             decoded = decode_move(idx, starting_board)
-            assert decoded == move, f"Roundtrip failed for {move}: idx={idx}, decoded={decoded}"
+            assert decoded == move, (
+                f"Roundtrip failed for {move}: idx={idx}, decoded={decoded}"
+            )
 
     def test_roundtrip_all_legal_italian(self, italian_game_board):
         """Every legal move in Italian Game should round-trip."""
@@ -119,10 +125,11 @@ class TestMoveEncoderDirections:
         """Rook moving north: a1a4 → direction 0 (N), distance 2 (3 squares = index 2)."""
         move = chess.Move.from_uci("a1a4")
         idx = encode_move(move)
-        from_sq = chess.A1
         move_type = idx % 73
         assert move_type // 7 == 0, f"Direction should be 0 (N), got {move_type // 7}"
-        assert move_type % 7 == 2, f"Distance should be 2 (3 squares), got {move_type % 7}"
+        assert move_type % 7 == 2, (
+            f"Distance should be 2 (3 squares), got {move_type % 7}"
+        )
 
     def test_diagonal_move(self):
         """Bishop moving NE: a1d4 → direction 1 (NE), distance 2."""
@@ -140,8 +147,14 @@ class TestMoveEncoderKnightDeltas:
         """From d4, a knight has 8 possible destinations."""
         from_sq = chess.D4
         deltas = [
-            (2, 1), (1, 2), (-1, 2), (-2, 1),
-            (-2, -1), (-1, -2), (1, -2), (2, -1),
+            (2, 1),
+            (1, 2),
+            (-1, 2),
+            (-2, 1),
+            (-2, -1),
+            (-1, -2),
+            (1, -2),
+            (2, -1),
         ]
         for i, (dr, df) in enumerate(deltas):
             to_rank = chess.square_rank(from_sq) + dr
@@ -151,8 +164,12 @@ class TestMoveEncoderKnightDeltas:
                 move = chess.Move(from_sq, to_sq)
                 idx = encode_move(move)
                 move_type = idx % 73
-                assert 56 <= move_type <= 63, f"Knight move should be 56-63, got {move_type}"
-                assert move_type - 56 == i, f"Knight index should be {i}, got {move_type - 56}"
+                assert 56 <= move_type <= 63, (
+                    f"Knight move should be 56-63, got {move_type}"
+                )
+                assert move_type - 56 == i, (
+                    f"Knight index should be {i}, got {move_type - 56}"
+                )
 
 
 class TestLegalMask:

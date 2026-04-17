@@ -34,7 +34,6 @@ if __name__ == "__main__":
     args, unknown = parser.parse_known_args()
 
     # Build hydra-style config
-    import hydra
     from omegaconf import OmegaConf
 
     # Load default chess config

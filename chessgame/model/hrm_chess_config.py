@@ -20,11 +20,11 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
             gab_compress_dim=128,
             gab_static_templates=True,
             batch_size=256,
-            seq_len=65,           # 64 squares + 1 CLS
-            vocab_size=1,         # unused — chess has no token vocab
+            seq_len=65,  # 64 squares + 1 CLS
+            vocab_size=1,  # unused — chess has no token vocab
             num_puzzle_identifiers=1,
             puzzle_emb_ndim=0,
-            pos_encodings="rope", # parent expects this; chess uses rope_2d override
+            pos_encodings="rope",  # parent expects this; chess uses rope_2d override
             hidden_size=512,
             num_heads=8,
             expansion=4.0,
@@ -34,6 +34,7 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
             L_cycles=6,
             halt_max_steps=8,
             halt_exploration_prob=0.1,
+            forward_dtype="bfloat16",
         )
 
     @classmethod
@@ -60,6 +61,7 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
             L_cycles=4,
             halt_max_steps=4,
             halt_exploration_prob=0.1,
+            forward_dtype="float32",
         )
 
     @classmethod
@@ -68,4 +70,3 @@ class HRMChessConfig(HierarchicalReasoningModel_ACTV1Config):
         cfg = cls.mac_mini()
         cfg.gab_enabled = False
         return cfg
-

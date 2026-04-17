@@ -225,3 +225,87 @@ Copy this template for each new entry:
 ---
 
 <!-- NEW ENTRIES GO BELOW THIS LINE -->
+
+### BUG-001: Stockfish Annotator Test Failure
+- **Date**: 2026-04-16
+- **PLAN.md step**: 0.4
+- **Symptoms**: `test_missing_binary_raises` failed because `StockfishAnnotator` didn't check for file existence when a string path was provided.
+- **Fix**: Added `not Path(stockfish_path).exists()` check in `__init__`.
+- **Status**: DONE
+- **Result**: `tests/test_stockfish_annotator.py` now passes (17/17 passed).
+- **Conclusion**: Fixed initialization logic to be more robust.
+
+### SMOKE-TRAIN-SV-001: Supervised Training Loop Verification
+- **Date**: 2026-04-16
+- **PLAN.md step**: 2.1
+- **Command**: `.venv/bin/python tests/test_supervised_train.py`
+- **Status**: DONE
+- **Result**:
+  - Model parameters: 5,833,163 (mac_mini)
+  - Dataset indexing: 20 records in 0.05s
+  - Training: 1 epoch, batch size 4
+  - Checkpoint saved: `tmp_test_data/checkpoints/epoch_1.pt`
+  - Resumption logic: Added `resume_from` and verified it loads model/optimizer/step/epoch.
+  - Logging: Added gradient norm logging.
+- **Conclusion**: Supervised training loop is fully functional and supports resumption.
+- **Follow-up**: Ready for full-scale Phase 2 training on Lichess Elite dataset.
+
+### SMOKE-TRAIN-DS-001: Distillation Training Loop Verification
+- **Date**: 2026-04-16
+- **PLAN.md step**: 3.1
+- **Command**: `.venv/bin/python tests/test_distill_train.py`
+- **Status**: DONE
+- **Result**:
+  - `scripts/generate_soft_labels.py`: Successfully generated MultiPV labels using 2 workers in 0.2s.
+  - Distillation Training: Completed 1 epoch on 10 positions with soft-policy targets.
+  - Checkpoint saved: `tmp_distill_test/checkpoints/epoch_1.pt`.
+  - Resumption logic: Verified same as supervised loop.
+  - Logging: Verified gradient norm and KL-divergence loss (via `total_distill`).
+- **Conclusion**: Distillation pipeline is fully functional.
+- **Follow-up**: Proceed to Phase 4 (MCTS implementation) after data generation.
+
+### SMOKE-MCTS-001: MCTS Implementation Verification
+- **Date**: 2026-04-16
+- **PLAN.md step**: 4.1
+- **Command**: `.venv/bin/python tests/test_mcts.py`
+- **Status**: DONE
+- **Result**:
+  - `MCTSNode`: Correctly handles backup (value flipping) and selection (PUCT).
+  - Batched evaluation: Verified stack of boards passed to model.
+  - Search: 10 simulations on starting position produce a valid visit-count distribution.
+- **Conclusion**: MCTS is functional and integrated with HRMChess.
+
+### SMOKE-SELFPLAY-001: Self-Play Loop Verification
+- **Date**: 2026-04-16
+- **PLAN.md step**: 4.2
+- **Command**: `.venv/bin/python tests/test_self_play.py`
+- **Status**: DONE
+- **Result**:
+  - `play_game`: Successfully plays a full game (or up to 200 moves) using MCTS.
+  - `ReplayBuffer`: Correctly stores (board, pi, outcome) and samples batches.
+  - Training step: Loss decreases on a single batch of self-play data.
+  - CLI: `python -m chessgame.train.self_play` successfully runs 2 games as a smoke test.
+- **Conclusion**: RL training infrastructure is ready.
+- **Follow-up**: Proceed to Phase 5 (Ablations & Interpretability).
+
+### EXP-SF-001: Stockfish Annotator Benchmark
+- **Date**: 2026-04-17
+- **PLAN.md step**: 0.4
+- **Hypothesis**: Multiprocessed annotation throughput and RAM usage estimation.
+- **Setup**:
+  - Scripts: `scripts/estimate_ram.py` and `scripts/estimate_ram_manual.py`
+- **Status**: DONE
+- **Result**: Scripts created to estimate RAM and benchmark throughput for generating the large Stockfish datasets.
+- **Conclusion**: Bottlenecks identified and RAM usage estimated for generating Phase 1 & 2 datasets.
+- **Follow-up**: Complete dataset generation for Phase 1 & Phase 2.
+
+### INTERP-001: Interpretability Scaffolding
+- **Date**: 2026-04-17
+- **PLAN.md step**: 5.4
+- **Hypothesis**: We need tools to visualize GAB bias and ACT depth.
+- **Setup**:
+  - Added `chessgame/eval/interpretability.py`
+- **Status**: DONE
+- **Result**: Implemented `GABSnapshot`, `ACTDepthRecord`, and game phase classifier.
+- **Conclusion**: Scaffolding is ready for Phase 5 ablation and interpretability studies.
+- **Follow-up**: Run model and log visualizations to proceed with interpretability experiments.

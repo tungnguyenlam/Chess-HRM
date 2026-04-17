@@ -1,194 +1,117 @@
-# Hierarchical Reasoning Model
+# HRM-GAB Chess
 
 ![](./assets/hrm.png)
 
-Reasoning, the process of devising and executing complex goal-oriented action sequences, remains a critical challenge in AI.
-Current large language models (LLMs) primarily employ Chain-of-Thought (CoT) techniques, which suffer from brittle task decomposition, extensive data requirements, and high latency. Inspired by the hierarchical and multi-timescale processing in the human brain, we propose the Hierarchical Reasoning Model (HRM), a novel recurrent architecture that attains significant computational depth while maintaining both training stability and efficiency.
-HRM executes sequential reasoning tasks in a single forward pass without explicit supervision of the intermediate process, through two interdependent recurrent modules: a high-level module responsible for slow, abstract planning, and a low-level module handling rapid, detailed computations. With only 27 million parameters, HRM achieves exceptional performance on complex reasoning tasks using only 1000 training samples. The model operates without pre-training or CoT data, yet achieves nearly perfect performance on challenging tasks including complex Sudoku puzzles and optimal path finding in large mazes.
-Furthermore, HRM outperforms much larger models with significantly longer context windows on the Abstraction and Reasoning Corpus (ARC), a key benchmark for measuring artificial general intelligence capabilities.
-These results underscore HRM’s potential as a transformative advancement toward universal computation and general-purpose reasoning systems.
+**HRM-GAB** is a novel chess architecture combining:
+1.  **Adaptive Computation Time (ACT)** from the Hierarchical Reasoning Model (HRM).
+2.  **Geometric Attention Bias (GAB)** from Chessformer.
+3.  **Recurrent GAB Evolution**: Geometric understanding deepens with each reasoning cycle.
 
-**Join our Discord Community: [https://discord.gg/sapient](https://discord.gg/sapient)**
+---
 
+## Quick Start (HRM-GAB Chess) 🚀
 
-## Quick Start Guide 🚀
-
-### Prerequisites ⚙️
-
-Ensure PyTorch and CUDA are installed. The repo needs CUDA extensions to be built. If not present, run the following commands:
+### 1. Setup Environment
 
 ```bash
-# Install CUDA 12.6
-CUDA_URL=https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda_12.6.3_560.35.05_linux.run
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-wget -q --show-progress --progress=bar:force:noscroll -O cuda_installer.run $CUDA_URL
-sudo sh cuda_installer.run --silent --toolkit --override
-
-export CUDA_HOME=/usr/local/cuda-12.6
-
-# Install PyTorch with CUDA 12.6
-PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
-
-pip3 install torch torchvision torchaudio --index-url $PYTORCH_INDEX_URL
-
-# Additional packages for building extensions
-pip3 install packaging ninja wheel setuptools setuptools-scm
-```
-
-Then install FlashAttention. For Hopper GPUs, install FlashAttention 3
-
-```bash
-git clone git@github.com:Dao-AILab/flash-attention.git
-cd flash-attention/hopper
-python setup.py install
-```
-
-For Ampere or earlier GPUs, install FlashAttention 2
-
-```bash
-pip3 install flash-attn
-```
-
-## Install Python Dependencies 🐍
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
+pip install pytest wandb omegaconf python-chess
 ```
 
-## W&B Integration 📈
+### 2. Verify Installation (Smoke Tests)
 
-This project uses [Weights & Biases](https://wandb.ai/) for experiment tracking and metric visualization. Ensure you're logged in:
+Run the full suite of unit tests to ensure encoders and model architecture are working correctly:
 
 ```bash
-wandb login
+# Run all tests (skips Stockfish-dependent tests if not installed)
+python -m pytest tests/ -v
 ```
 
-## Run Experiments
+### 3. Training & Evaluation Pipeline
 
-### Quick Demo: Sudoku Solver 💻🗲
-
-Train a master-level Sudoku AI capable of solving extremely difficult puzzles on a modern laptop GPU. 🧩
+#### Phase 1: Supervised Training (Lichess Elite)
+Train on a JSONL dataset of Lichess positions.
 
 ```bash
-# Download and build Sudoku dataset
-python dataset/build_sudoku_dataset.py --output-dir data/sudoku-extreme-1k-aug-1000  --subsample-size 1000 --num-aug 1000
+# Test with dummy data (Smoke Test)
+python tests/test_supervised_train.py
 
-# Start training (single GPU, smaller batch size)
-OMP_NUM_THREADS=8 python pretrain.py data_path=data/sudoku-extreme-1k-aug-1000 epochs=20000 eval_interval=2000 global_batch_size=384 lr=7e-5 puzzle_emb_lr=7e-5 weight_decay=1.0 puzzle_emb_weight_decay=1.0
+# Full Supervised Run (Mac Mini config)
+python -m chessgame.train.supervised \
+    --data data/lichess_elite.jsonl \
+    --config mac_mini \
+    --epochs 5 \
+    --batch_size 32 \
+    --lr 1e-4 \
+    --checkpoint_dir checkpoints/supervised
 ```
 
-Runtime: ~10 hours on a RTX 4070 laptop GPU
-
-## Trained Checkpoints 🚧
-
- - [ARC-AGI-2](https://huggingface.co/sapientinc/HRM-checkpoint-ARC-2)
- - [Sudoku 9x9 Extreme (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-sudoku-extreme)
- - [Maze 30x30 Hard (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-maze-30x30-hard)
-
-To use the checkpoints, see Evaluation section below.
-
-## Full-scale Experiments 🔵
-
-Experiments below assume an 8-GPU setup.
-
-### Dataset Preparation
+#### Phase 2: Stockfish Distillation
+Fine-tune using soft-labels from Stockfish MultiPV.
 
 ```bash
-# Initialize submodules
-git submodule update --init --recursive
-
-# ARC-1
-python dataset/build_arc_dataset.py  # ARC offical + ConceptARC, 960 examples
-# ARC-2
-python dataset/build_arc_dataset.py --dataset-dirs dataset/raw-data/ARC-AGI-2/data --output-dir data/arc-2-aug-1000  # ARC-2 official, 1120 examples
-
-# Sudoku-Extreme
-python dataset/build_sudoku_dataset.py  # Full version
-python dataset/build_sudoku_dataset.py --output-dir data/sudoku-extreme-1k-aug-1000  --subsample-size 1000 --num-aug 1000  # 1000 examples
-
-# Maze
-python dataset/build_maze_dataset.py  # 1000 examples
+python -m chessgame.train.distill \
+    --data data/stockfish_soft.jsonl \
+    --checkpoint checkpoints/supervised/epoch_5.pt \
+    --config mac_mini \
+    --epochs 2 \
+    --lr 3e-5 \
+    --checkpoint_dir checkpoints/distill
 ```
 
-### Dataset Visualization
-
-Explore the puzzles visually:
-
-* Open `puzzle_visualizer.html` in your browser.
-* Upload the generated dataset folder located in `data/...`.
-
-## Launch experiments
-
-### Small-sample (1K)
-
-ARC-1:
+#### Phase 3: Evaluation (Arena & Puzzles)
+Measure the model's strength against Stockfish or its accuracy on tactical puzzles.
 
 ```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py 
+# Arena: Model vs Stockfish (Elo estimation)
+python evaluate_chess.py \
+    --checkpoint checkpoints/supervised/epoch_5.pt \
+    --sf_elo 1500 \
+    --games 20
+
+# Puzzles: Lichess Puzzle Database
+# Download CSV from: https://database.lichess.org/#puzzles
+python -c "from chessgame.eval.puzzles import PuzzleEvaluator; from chessgame.model.hrm_chess import HRMChess; import torch; \
+model = HRMChess.load_from_checkpoint('checkpoints/supervised/epoch_5.pt'); \
+evaluator = PuzzleEvaluator(lambda b: model.get_move(b)); \
+report = evaluator.evaluate_file('puzzles.csv', max_puzzles=1000); \
+print(f'Accuracy: {report.accuracy:.2%}')"
 ```
 
-*Runtime:* ~24 hours
+---
 
-ARC-2:
+## Project Structure
 
-```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py data_path=data/arc-2-aug-1000
-```
+*   `chessgame/model/`: **HRM-GAB** architecture (GAB integration, Attention bias).
+*   `chessgame/encoding/`: AlphaZero-style 119-plane board encoding.
+*   `chessgame/data/`: Lichess and Stockfish dataset loaders.
+*   `chessgame/train/`: Supervised, Distillation, and RL (planned) loops.
+*   `chessmodels/hrm/`: Upstream HRM core (Read-only).
 
-*Runtime:* ~24 hours (checkpoint after 8 hours is often sufficient)
+---
 
-Sudoku Extreme (1k):
+## Implementation Status
 
-```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py data_path=data/sudoku-extreme-1k-aug-1000 epochs=20000 eval_interval=2000 lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0
-```
+- [x] **Phase 0: Infrastructure** (Encoders, Datasets, SF Annotator, Eval)
+- [x] **Phase 1: Architecture** (GAB Module, Attention Bias, HRM Integration)
+- [x] **Phase 2: Supervised** (Training loop, Resumption logic, Smoke tests)
+- [x] **Phase 3: Distillation** (Training loop, Generation script, Resumption logic)
+- [x] **Phase 4: RL Self-Play** (MCTS, Self-Play loop)
+- [ ] **Phase 5: Ablation Studies** (Planned)
 
-*Runtime:* ~10 minutes
+---
 
-Maze 30x30 Hard (1k):
+## Original HRM Documentation
 
-```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py data_path=data/maze-30x30-hard-1k epochs=20000 eval_interval=2000 lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0
-```
+(See below for the original Hierarchical Reasoning Model documentation for ARC, Sudoku, and Maze tasks.)
 
-*Runtime:* ~1 hour
+---
 
-### Full Sudoku-Hard
+# Hierarchical Reasoning Model (Upstream)
 
-```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py data_path=data/sudoku-hard-full epochs=100 eval_interval=10 lr_min_ratio=0.1 global_batch_size=2304 lr=3e-4 puzzle_emb_lr=3e-4 weight_decay=0.1 puzzle_emb_weight_decay=0.1 arch.loss.loss_type=softmax_cross_entropy arch.L_cycles=8 arch.halt_max_steps=8 arch.pos_encodings=learned
-```
-
-*Runtime:* ~2 hours
-
-## Evaluation
-
-Evaluate your trained models:
-
-* Check `eval/exact_accuracy` in W&B.
-* For ARC-AGI, follow these additional steps:
-
-```bash
-OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 evaluate.py checkpoint=<CHECKPOINT_PATH>
-```
-
-* Then use the provided `arc_eval.ipynb` notebook to finalize and inspect your results.
-
-## Notes
-
- - Small-sample learning typically exhibits accuracy variance of around ±2 points.
- - For Sudoku-Extreme (1,000-example dataset), late-stage overfitting may cause numerical instability during training and Q-learning. It is advisable to use early stopping once the training accuracy approaches 100%.
-
-## Citation 📜
-
-```bibtex
-@misc{wang2025hierarchicalreasoningmodel,
-      title={Hierarchical Reasoning Model}, 
-      author={Guan Wang and Jin Li and Yuhao Sun and Xing Chen and Changling Liu and Yue Wu and Meng Lu and Sen Song and Yasin Abbasi Yadkori},
-      year={2025},
-      eprint={2506.21734},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2506.21734}, 
-}
-```
+... [REST OF ORIGINAL README] ...

@@ -7,6 +7,7 @@ an attn_bias kwarg, so we override the forward to add it before softmax.
 
 Implements: PLAN.md steps 1.2 and 1.3
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -21,11 +22,8 @@ from chessmodels.layers import (
     apply_rotary_pos_emb,
     rms_norm,
     SwiGLU,
-    CastedLinear,
 )
 from chessmodels.hrm.hrm_act_v1 import (
-    HierarchicalReasoningModel_ACTV1Block,
-    HierarchicalReasoningModel_ACTV1ReasoningModule,
     HierarchicalReasoningModel_ACTV1Config,
 )
 
@@ -56,10 +54,15 @@ class AttentionWithBias(Attention):
 
         # QKV projection
         qkv = self.qkv_proj(hidden_states)
-        qkv = qkv.view(batch_size, seq_len, self.num_heads + 2 * self.num_key_value_heads, self.head_dim)
-        query = qkv[:, :, :self.num_heads]
-        key = qkv[:, :, self.num_heads: self.num_heads + self.num_key_value_heads]
-        value = qkv[:, :, self.num_heads + self.num_key_value_heads:]
+        qkv = qkv.view(
+            batch_size,
+            seq_len,
+            self.num_heads + 2 * self.num_key_value_heads,
+            self.head_dim,
+        )
+        query = qkv[:, :, : self.num_heads]
+        key = qkv[:, :, self.num_heads : self.num_heads + self.num_key_value_heads]
+        value = qkv[:, :, self.num_heads + self.num_key_value_heads :]
 
         # RoPE
         if cos_sin is not None:
@@ -73,10 +76,12 @@ class AttentionWithBias(Attention):
 
         if attn_bias is not None:
             # Use manual attention to inject GAB bias
-            scale = self.head_dim ** -0.5
+            scale = self.head_dim**-0.5
             attn_weights = torch.matmul(q, k.transpose(-2, -1)) * scale
             attn_weights = attn_weights + attn_bias
-            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+                q.dtype
+            )
             attn_output = torch.matmul(attn_weights, v)
         else:
             # No bias — use PyTorch's optimized SDPA
@@ -116,7 +121,10 @@ class BlockWithBias(nn.Module):
     ) -> torch.Tensor:
         # Post-norm with GAB-aware attention
         hidden_states = rms_norm(
-            hidden_states + self.self_attn(cos_sin=cos_sin, hidden_states=hidden_states, attn_bias=attn_bias),
+            hidden_states
+            + self.self_attn(
+                cos_sin=cos_sin, hidden_states=hidden_states, attn_bias=attn_bias
+            ),
             variance_epsilon=self.norm_eps,
         )
         hidden_states = rms_norm(

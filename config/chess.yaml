@@ -79,6 +79,7 @@ mac_mini:
   num_puzzle_identifiers: 1
   puzzle_emb_ndim: 0
   pos_encodings: rope
+  forward_dtype: float32
 
   # GAB (Geometric Attention Bias)
   gab:

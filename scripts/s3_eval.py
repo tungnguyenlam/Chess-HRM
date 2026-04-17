@@ -82,7 +82,6 @@ engine = chess.engine.SimpleEngine.popen_uci(args.stockfish_path)
 engine.configure({"Skill Level": max(0, min(20, args.sf_elo // 100))})
 
 from evaluate_chess import play_game
-import random
 
 print(f"Playing {args.games} games vs Stockfish @ Elo {args.sf_elo}...")
 

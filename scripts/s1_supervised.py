@@ -52,6 +52,8 @@ parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
 parser.add_argument(
     "--accum_steps", type=int, default=1, help="Gradient accumulation steps"
 )
+parser.add_argument("--min_elo", type=int, default=0, help="Min Elo filter")
+parser.add_argument("--curriculum", action="store_true", help="Enable Elo curriculum")
 
 args = parser.parse_args()
 
@@ -76,6 +78,7 @@ grad_clip = (
 min_depth = (
     args.min_depth if args.min_depth != 18 else supervised_cfg.get("min_depth", 18)
 )
+min_elo = args.min_elo if args.min_elo != 0 else supervised_cfg.get("min_elo", 0)
 warmup_steps = supervised_cfg.get("warmup_steps", 500)
 accum_steps = (
     supervised_cfg.get("accum_steps", 1)
@@ -87,7 +90,6 @@ from chessgame.train.supervised import train
 
 train(
     data_path=args.data,
-    checkpoint_path=args.checkpoint,
     config_name=args.config,
     epochs=epochs,
     batch_size=batch_size,
@@ -95,8 +97,11 @@ train(
     weight_decay=weight_decay,
     grad_clip=grad_clip,
     min_depth=min_depth,
+    min_elo=min_elo,
+    curriculum=args.curriculum,
     checkpoint_dir=args.checkpoint_dir,
     device_str=args.device,
     use_wandb=args.wandb,
     accum_steps=accum_steps,
+    resume_from=args.checkpoint,
 )

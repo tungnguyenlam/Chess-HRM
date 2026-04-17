@@ -3,11 +3,9 @@
 Tests dataset loaders and replay buffer without requiring actual data files.
 We create temporary JSONL fixtures inline.
 """
-import json
-import tempfile
-from pathlib import Path
 
-import chess
+import json
+
 import numpy as np
 import torch
 import pytest
@@ -22,19 +20,36 @@ from chessgame.encoding.move_encoder import NUM_MOVES
 # Fixtures: in-memory JSONL files
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def lichess_jsonl(tmp_path):
     """Create a small Lichess-format JSONL file."""
     records = [
-        {"fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
-         "move": "e7e5", "cp": -30, "depth": 20},
-        {"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-         "move": "e2e4", "cp": 30, "depth": 22},
-        {"fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
-         "move": "b8c6", "cp": -10, "depth": 25},
+        {
+            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "move": "e7e5",
+            "cp": -30,
+            "depth": 20,
+        },
+        {
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "move": "e2e4",
+            "cp": 30,
+            "depth": 22,
+        },
+        {
+            "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+            "move": "b8c6",
+            "cp": -10,
+            "depth": 25,
+        },
         # Shallow record — should be filtered out with min_depth=18
-        {"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-         "move": "d2d4", "cp": 20, "depth": 5},
+        {
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "move": "d2d4",
+            "cp": 20,
+            "depth": 5,
+        },
     ]
     path = tmp_path / "test_lichess.jsonl"
     with open(path, "w") as f:
@@ -82,6 +97,7 @@ def stockfish_jsonl(tmp_path):
 # LichessEliteDataset
 # ---------------------------------------------------------------------------
 
+
 class TestLichessEliteDataset:
     """Tests for the Lichess supervised dataset."""
 
@@ -120,6 +136,7 @@ class TestLichessEliteDataset:
         ds = LichessEliteDataset(lichess_jsonl, min_depth=18)
         _, move_idx, _ = ds[0]
         from chessgame.encoding.move_encoder import decode_move
+
         decoded = decode_move(move_idx.item())
         assert decoded is not None
         assert decoded.uci() == "e7e5"
@@ -128,6 +145,7 @@ class TestLichessEliteDataset:
 # ---------------------------------------------------------------------------
 # StockfishSoftDataset
 # ---------------------------------------------------------------------------
+
 
 class TestStockfishSoftDataset:
     """Tests for the Stockfish soft-label distillation dataset."""
@@ -166,6 +184,7 @@ class TestStockfishSoftDataset:
 # ReplayBuffer
 # ---------------------------------------------------------------------------
 
+
 class TestReplayBuffer:
     """Tests for the circular replay buffer."""
 
@@ -192,8 +211,7 @@ class TestReplayBuffer:
     def test_sample_shapes(self):
         buf = ReplayBuffer(capacity=100)
         samples = [
-            (torch.randn(8, 8, 119), torch.randn(NUM_MOVES), 1.0)
-            for _ in range(10)
+            (torch.randn(8, 8, 119), torch.randn(NUM_MOVES), 1.0) for _ in range(10)
         ]
         buf.add(samples)
         boards, pis, outcomes = buf.sample(4)
@@ -204,6 +222,8 @@ class TestReplayBuffer:
     def test_sample_clamps_to_buffer_size(self):
         """Requesting more than available should return all."""
         buf = ReplayBuffer(capacity=100)
-        buf.add([(torch.randn(8, 8, 119), torch.randn(NUM_MOVES), 0.0) for _ in range(3)])
+        buf.add(
+            [(torch.randn(8, 8, 119), torch.randn(NUM_MOVES), 0.0) for _ in range(3)]
+        )
         boards, pis, outcomes = buf.sample(100)
         assert boards.shape[0] == 3

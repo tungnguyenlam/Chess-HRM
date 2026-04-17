@@ -15,6 +15,7 @@ Reads pre-generated JSONL files where each record has multipv Stockfish output:
 Generate this file offline using dataset/generate_soft_labels.py (to be added),
 which calls Stockfish with multipv=8 on a set of positions.
 """
+
 import json
 from typing import Optional
 
@@ -27,7 +28,7 @@ from chessgame.encoding.board_encoder import encode_board
 from chessgame.encoding.move_encoder import encode_move, NUM_MOVES
 
 
-_TEMPERATURE_CP = 100.0   # centipawn temperature for softmax
+_TEMPERATURE_CP = 100.0  # centipawn temperature for softmax
 
 
 class StockfishSoftDataset(Dataset):
@@ -41,9 +42,13 @@ class StockfishSoftDataset(Dataset):
         max_records: Cap dataset size
     """
 
-    def __init__(self, path: str, min_depth: int = 12,
-                 temperature: float = _TEMPERATURE_CP,
-                 max_records: Optional[int] = None):
+    def __init__(
+        self,
+        path: str,
+        min_depth: int = 12,
+        temperature: float = _TEMPERATURE_CP,
+        max_records: Optional[int] = None,
+    ):
         self.temperature = temperature
         self.records: list[dict] = []
         with open(path) as f:
@@ -91,7 +96,11 @@ class StockfishSoftDataset(Dataset):
         # Value from top-move score
         top_cp = moves_data[0]["cp"] if moves_data else 0
         import numpy as np
+
         value_target = float(np.tanh(top_cp / 400.0))
 
-        return board_tensor, soft_policy, \
-               torch.tensor(value_target, dtype=torch.float32)
+        return (
+            board_tensor,
+            soft_policy,
+            torch.tensor(value_target, dtype=torch.float32),
+        )

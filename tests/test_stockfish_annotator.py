@@ -3,6 +3,7 @@
 These tests require Stockfish to be installed and available in PATH.
 If not available, they are skipped automatically.
 """
+
 import json
 import shutil
 import tempfile
@@ -30,8 +31,8 @@ def annotator():
     """Create an annotator with fast settings for testing."""
     ann = StockfishAnnotator(
         stockfish_path=SF_PATH,
-        depth=5,       # shallow for speed
-        multipv=3,     # few PVs for speed
+        depth=5,  # shallow for speed
+        multipv=3,  # few PVs for speed
         threads=1,
         hash_mb=16,
     )
@@ -117,7 +118,10 @@ class TestAnnotateMultiple:
     """Batch annotation."""
 
     def test_multiple_positions(self, annotator):
-        boards = [chess.Board(), chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")]
+        boards = [
+            chess.Board(),
+            chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"),
+        ]
         results = annotator.annotate_positions(boards)
         assert len(results) == 2
         assert all(isinstance(r, AnnotatedPosition) for r in results)

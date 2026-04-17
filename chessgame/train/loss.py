@@ -2,6 +2,7 @@
 Pure loss functions for chess HRM training.
 No training loop logic — just the math.
 """
+
 from typing import Optional, Dict
 import torch
 import torch.nn.functional as F
@@ -57,8 +58,9 @@ def total_supervised(
     value_target: torch.Tensor,
 ) -> torch.Tensor:
     """Phase 2 loss: policy CE + value MSE.  ACT excluded."""
-    return policy_hard(outputs["policy"], move_target) + \
-           value_mse(outputs["value"], value_target)
+    return policy_hard(outputs["policy"], move_target) + value_mse(
+        outputs["value"], value_target
+    )
 
 
 def total_distill(
@@ -67,8 +69,9 @@ def total_distill(
     value_target: torch.Tensor,
 ) -> torch.Tensor:
     """Phase 3 loss: soft policy KL + value MSE.  ACT excluded."""
-    return policy_soft(outputs["policy"], soft_policy) + \
-           value_mse(outputs["value"], value_target)
+    return policy_soft(outputs["policy"], soft_policy) + value_mse(
+        outputs["value"], value_target
+    )
 
 
 def total_rl(
@@ -84,9 +87,11 @@ def total_rl(
       soft_policy + value_mse + act_weight * act_q_loss
       + kl_weight * kl_sf_loss  (Stockfish KL regularizer, annealed to 0)
     """
-    loss = policy_soft(outputs["policy"], mcts_pi) + \
-           value_mse(outputs["value"], outcome) + \
-           act_weight * act_q_loss(outputs)
+    loss = (
+        policy_soft(outputs["policy"], mcts_pi)
+        + value_mse(outputs["value"], outcome)
+        + act_weight * act_q_loss(outputs)
+    )
 
     if kl_sf_loss is not None and kl_weight > 0.0:
         loss = loss + kl_weight * kl_sf_loss

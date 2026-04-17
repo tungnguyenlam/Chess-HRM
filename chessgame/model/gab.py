@@ -12,6 +12,7 @@ Architecture:
 Reference: Chessformer (2026), Section 3.2 — adapted for recurrent use.
 Implements: PLAN.md step 1.1
 """
+
 from __future__ import annotations
 
 import torch

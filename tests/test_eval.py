@@ -3,9 +3,8 @@
 Tests puzzle evaluator and interpretability scaffolding.
 Arena tests (evaluate_chess.py) require Stockfish — skipped if not available.
 """
+
 import csv
-import tempfile
-from pathlib import Path
 
 import chess
 import pytest
@@ -13,7 +12,6 @@ import pytest
 from chessgame.eval.puzzles import (
     PuzzleEvaluator,
     PuzzleReport,
-    PuzzleResult,
     parse_puzzle_csv_line,
 )
 from chessgame.eval.interpretability import (
@@ -26,6 +24,7 @@ from chessgame.eval.interpretability import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def puzzle_csv(tmp_path):
@@ -71,6 +70,7 @@ def puzzle_csv(tmp_path):
 # ---------------------------------------------------------------------------
 # parse_puzzle_csv_line
 # ---------------------------------------------------------------------------
+
 
 class TestParsePuzzle:
     def test_valid_row(self):
@@ -122,6 +122,7 @@ class TestParsePuzzle:
 # PuzzleEvaluator
 # ---------------------------------------------------------------------------
 
+
 class TestPuzzleEvaluator:
     def test_perfect_model(self, puzzle_csv):
         """A model that always picks the expected move should get 100%."""
@@ -149,6 +150,7 @@ class TestPuzzleEvaluator:
 
     def test_wrong_model(self, puzzle_csv):
         """A model that always picks a1a2 gets 0% (it's never the right answer)."""
+
         def bad_move(board):
             return chess.Move.from_uci("a1a2")
 
@@ -188,18 +190,28 @@ class TestPuzzleReport:
 # Interpretability scaffolding
 # ---------------------------------------------------------------------------
 
+
 class TestInterpretability:
     def test_classify_opening(self):
-        assert classify_game_phase(5, 32) == "opening"
+        board = chess.Board()
+        assert classify_game_phase(board) == "opening"
 
     def test_classify_middlegame(self):
-        assert classify_game_phase(20, 20) == "middlegame"
+        board = chess.Board()
+        board.fullmove_number = 20
+        assert classify_game_phase(board) == "middlegame"
 
     def test_classify_endgame(self):
-        assert classify_game_phase(40, 6) == "endgame"
+        board = chess.Board()
+        board.fullmove_number = 40
+        board.clear_board()
+        board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        board.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+        assert classify_game_phase(board) == "endgame"
 
     def test_gab_snapshot_dataclass(self):
         import torch
+
         snap = GABSnapshot(cycle=1, bias=torch.zeros(8, 65, 65))
         assert snap.cycle == 1
         assert snap.bias.shape == (8, 65, 65)
@@ -209,6 +221,6 @@ class TestInterpretability:
             fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
             halt_step=3,
             phase="opening",
-            sf_eval_variance=0.5,
+            sf_eval=0.5,
         )
         assert rec.halt_step == 3

@@ -13,6 +13,7 @@ move_type breakdown (73 total per square):
            dirs: left-capture push right-capture
            (queen promotions are encoded as queen-type moves)
 """
+
 from typing import Optional, Dict, Tuple
 
 import chess
@@ -21,22 +22,30 @@ import torch
 # --- Direction tables ---
 
 _QUEEN_DIRS: list[Tuple[int, int]] = [
-    (1, 0),    # 0 N
-    (1, 1),    # 1 NE
-    (0, 1),    # 2 E
-    (-1, 1),   # 3 SE
-    (-1, 0),   # 4 S
+    (1, 0),  # 0 N
+    (1, 1),  # 1 NE
+    (0, 1),  # 2 E
+    (-1, 1),  # 3 SE
+    (-1, 0),  # 4 S
     (-1, -1),  # 5 SW
-    (0, -1),   # 6 W
-    (1, -1),   # 7 NW
+    (0, -1),  # 6 W
+    (1, -1),  # 7 NW
 ]
 _DIR_TO_IDX: Dict[Tuple[int, int], int] = {d: i for i, d in enumerate(_QUEEN_DIRS)}
 
 _KNIGHT_DELTAS: list[Tuple[int, int]] = [
-    (2, 1), (1, 2), (-1, 2), (-2, 1),
-    (-2, -1), (-1, -2), (1, -2), (2, -1),
+    (2, 1),
+    (1, 2),
+    (-1, 2),
+    (-2, 1),
+    (-2, -1),
+    (-1, -2),
+    (1, -2),
+    (2, -1),
 ]
-_KNIGHT_TO_IDX: Dict[Tuple[int, int], int] = {d: i for i, d in enumerate(_KNIGHT_DELTAS)}
+_KNIGHT_TO_IDX: Dict[Tuple[int, int], int] = {
+    d: i for i, d in enumerate(_KNIGHT_DELTAS)
+}
 
 _PROMO_PIECES = [chess.ROOK, chess.BISHOP, chess.KNIGHT]
 
@@ -70,8 +79,8 @@ def encode_move(move: chess.Move) -> int:
     # Queen-type (sliding + queen promotions)
     else:
         max_dist = max(abs_dr, abs_df)
-        sign_dr = (1 if dr > 0 else -1 if dr < 0 else 0)
-        sign_df = (1 if df > 0 else -1 if df < 0 else 0)
+        sign_dr = 1 if dr > 0 else -1 if dr < 0 else 0
+        sign_df = 1 if df > 0 else -1 if df < 0 else 0
         direction = _DIR_TO_IDX[(sign_dr, sign_df)]
         distance = max_dist - 1  # 0-indexed
         move_type = direction * 7 + distance
@@ -104,8 +113,9 @@ def decode_move(idx: int, board: Optional[chess.Board] = None) -> Optional[chess
         if board is not None:
             piece = board.piece_at(from_sq)
             if piece and piece.piece_type == chess.PAWN:
-                if (piece.color == chess.WHITE and to_rank == 7) or \
-                   (piece.color == chess.BLACK and to_rank == 0):
+                if (piece.color == chess.WHITE and to_rank == 7) or (
+                    piece.color == chess.BLACK and to_rank == 0
+                ):
                     promotion = chess.QUEEN
         return chess.Move(from_sq, to_sq, promotion=promotion)
 
@@ -132,8 +142,9 @@ def decode_move(idx: int, board: Optional[chess.Board] = None) -> Optional[chess
         to_file = from_file + df
         if not (0 <= to_rank <= 7 and 0 <= to_file <= 7):
             return None
-        return chess.Move(from_sq, chess.square(to_file, to_rank),
-                          promotion=_PROMO_PIECES[piece_idx])
+        return chess.Move(
+            from_sq, chess.square(to_file, to_rank), promotion=_PROMO_PIECES[piece_idx]
+        )
 
 
 def legal_mask(board: chess.Board) -> torch.BoolTensor:

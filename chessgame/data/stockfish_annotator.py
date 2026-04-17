@@ -15,10 +15,10 @@ Usage:
 
 Implements: PLAN.md step 0.4
 """
+
 from __future__ import annotations
 
 import json
-import subprocess
 import shutil
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -31,6 +31,7 @@ import chess.engine
 @dataclass
 class AnnotatedPosition:
     """One annotated position with MultiPV Stockfish evaluation."""
+
     fen: str
     moves: List[dict] = field(default_factory=list)  # [{"move": uci, "cp": int}]
     depth: int = 0
@@ -58,7 +59,7 @@ class StockfishAnnotator:
     ):
         if stockfish_path is None:
             stockfish_path = shutil.which("stockfish")
-        if stockfish_path is None:
+        if stockfish_path is None or not Path(stockfish_path).exists():
             raise FileNotFoundError(
                 "Stockfish binary not found. Install Stockfish or pass stockfish_path."
             )
@@ -74,10 +75,12 @@ class StockfishAnnotator:
         """Start (or return existing) Stockfish engine process."""
         if self._engine is None:
             self._engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
-            self._engine.configure({
-                "Threads": self.threads,
-                "Hash": self.hash_mb,
-            })
+            self._engine.configure(
+                {
+                    "Threads": self.threads,
+                    "Hash": self.hash_mb,
+                }
+            )
         return self._engine
 
     def close(self) -> None:
@@ -112,10 +115,12 @@ class StockfishAnnotator:
             if pv and score:
                 # Normalize score to centipawns from White's perspective
                 cp = _score_to_cp(score, board.turn)
-                moves.append({
-                    "move": pv[0].uci(),
-                    "cp": cp,
-                })
+                moves.append(
+                    {
+                        "move": pv[0].uci(),
+                        "cp": cp,
+                    }
+                )
 
         return AnnotatedPosition(
             fen=board.fen(),
@@ -123,9 +128,7 @@ class StockfishAnnotator:
             depth=actual_depth,
         )
 
-    def annotate_positions(
-        self, boards: List[chess.Board]
-    ) -> List[AnnotatedPosition]:
+    def annotate_positions(self, boards: List[chess.Board]) -> List[AnnotatedPosition]:
         """Annotate multiple positions sequentially."""
         results = []
         for board in boards:

@@ -13,13 +13,13 @@ Estimates model Elo using the 400-point logistic formula:
   elo_diff = 400 * log10(win_rate / (1 - win_rate))
   estimated_elo = target_elo + elo_diff
 """
+
 import argparse
 import math
 
 import chess
 import chess.engine
 import torch
-import torch.nn.functional as F
 
 from chessgame.model.hrm_chess import HRMChess
 from chessgame.model.hrm_chess_config import HRMChessConfig
@@ -50,7 +50,7 @@ def get_model_move(
 
     carry, outputs = model(carry, batch)
 
-    policy = outputs["policy"][0]           # [4672]
+    policy = outputs["policy"][0]  # [4672]
     mask = legal_mask(board).to(device)
     policy = policy.masked_fill(~mask, float("-inf"))
     move_idx = policy.argmax().item()
@@ -59,6 +59,7 @@ def get_model_move(
     # Fallback: random legal move if decode fails
     if move is None or move not in board.legal_moves:
         import random
+
         move = random.choice(list(board.legal_moves))
 
     return move, carry
@@ -116,7 +117,9 @@ def evaluate(
         device = torch.device(device_str)
 
     # Model
-    config = HRMChessConfig.full() if config_name == "full" else HRMChessConfig.mac_mini()
+    config = (
+        HRMChessConfig.full() if config_name == "full" else HRMChessConfig.mac_mini()
+    )
     model = HRMChess(config).to(device)
     if device.type in ("cuda", "mps"):
         model = model.to(torch.bfloat16)
@@ -133,7 +136,7 @@ def evaluate(
     wins = draws = losses = 0
 
     for i in range(n_games):
-        model_white = (i % 2 == 0)
+        model_white = i % 2 == 0
         result = play_game(model, engine, model_white, sf_time_limit, device)
 
         if not model_white:
@@ -146,8 +149,10 @@ def evaluate(
         else:
             losses += 1
 
-        print(f"Game {i+1}/{n_games}: {'W' if result>0 else 'D' if result==0 else 'L'} "
-              f"(model {'white' if model_white else 'black'})")
+        print(
+            f"Game {i + 1}/{n_games}: {'W' if result > 0 else 'D' if result == 0 else 'L'} "
+            f"(model {'white' if model_white else 'black'})"
+        )
 
     engine.quit()
 
@@ -171,8 +176,9 @@ def main():
     parser.add_argument("--stockfish_path", default="stockfish")
     parser.add_argument("--sf_elo", type=int, default=1500)
     parser.add_argument("--games", type=int, default=20)
-    parser.add_argument("--sf_time", type=float, default=0.1,
-                        help="Stockfish time per move in seconds")
+    parser.add_argument(
+        "--sf_time", type=float, default=0.1, help="Stockfish time per move in seconds"
+    )
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 

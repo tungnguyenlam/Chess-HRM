@@ -1,4 +1,5 @@
 """Tests for chessgame.encoding.board_encoder — PLAN step 0.2."""
+
 import chess
 import torch
 
@@ -60,7 +61,9 @@ class TestBoardEncoderPieces:
         for rank in range(2, 6):
             for file_idx in range(8):
                 piece_sum = t[rank, file_idx, 0:12].sum()
-                assert piece_sum == 0.0, f"Unexpected piece at rank={rank}, file={file_idx}"
+                assert piece_sum == 0.0, (
+                    f"Unexpected piece at rank={rank}, file={file_idx}"
+                )
 
     def test_piece_after_move(self, italian_game_board):
         """After 1.e4, pawn should be at e4 (rank 3, file 4)."""
@@ -139,7 +142,7 @@ class TestBoardEncoderHistory:
         t = encode_board(starting_board, [])
         for step in range(1, 8):
             offset = step * 14
-            piece_sum = t[:, :, offset:offset + 12].sum()
+            piece_sum = t[:, :, offset : offset + 12].sum()
             assert piece_sum == 0.0, f"History step {step} should be zero-padded"
 
     def test_history_limited_to_7(self, board_with_history):
