@@ -14,35 +14,32 @@ import torch
 from chessgame.model.hrm_chess import HRMChess
 from chessgame.model.hrm_chess_config import HRMChessConfig
 from chessgame.train.mcts import MCTS
+from chessgame.train.runtime import log_runtime, resolve_training_runtime
 
 
 class UCIEngine:
     def __init__(
-        self, checkpoint_path: str, config_name: str = "mac_mini", device: str = "auto"
+        self,
+        checkpoint_path: str,
+        config_name: str = "mac_mini",
+        device: str = "auto",
+        forward_dtype: str = "auto",
     ):
-        if device == "auto":
-            self.device = torch.device(
-                "cuda"
-                if torch.cuda.is_available()
-                else "mps"
-                if torch.backends.mps.is_available()
-                else "cpu"
-            )
-        else:
-            self.device = torch.device(device)
-
         # Load model
         config = (
             HRMChessConfig.full()
             if config_name == "full"
             else HRMChessConfig.mac_mini()
         )
-        self.model = HRMChess(config).to(self.device)
-
-        target_dtype = (
-            torch.bfloat16 if self.device.type in ("cuda", "mps") else torch.float32
+        runtime = resolve_training_runtime(
+            config=config,
+            device_str=device,
+            forward_dtype_str=forward_dtype,
         )
-        self.model.to(target_dtype)
+        log_runtime(runtime, lambda message: sys.stderr.write(message + "\n"))
+
+        self.device = runtime.device
+        self.model = HRMChess(config).to(self.device)
 
         state = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(state["model"])
@@ -133,7 +130,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--config", default="mac_mini")
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--forward_dtype", default="auto")
     args = parser.parse_args()
 
-    engine = UCIEngine(args.checkpoint, args.config, args.device)
+    engine = UCIEngine(args.checkpoint, args.config, args.device, args.forward_dtype)
     engine.main_loop()

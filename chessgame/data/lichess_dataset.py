@@ -2,6 +2,7 @@ import json
 import os
 import io
 import random
+import time
 from typing import Optional, List, Iterable
 
 import chess
@@ -100,12 +101,16 @@ class ShardedLichessDataset(IterableDataset):
         min_elo: int = 0,
         shuffle_shards: bool = True,
         buffer_size: int = 20000,
+        verbose: bool = False,
+        progress_every_samples: int = 50000,
     ):
         self.shard_dir = shard_dir
         self.min_depth = min_depth
         self.min_elo = min_elo
         self.shuffle_shards = shuffle_shards
         self.buffer_size = buffer_size
+        self.verbose = verbose
+        self.progress_every_samples = progress_every_samples
 
         if not os.path.exists(shard_dir):
             self.shards = []
@@ -116,7 +121,11 @@ class ShardedLichessDataset(IterableDataset):
                 if f.endswith(".jsonl") or f.endswith(".jsonl.zst")
             ]
         self.shards.sort()
-        print(f"Found {len(self.shards)} shards in {shard_dir}")
+        print(f"Found {len(self.shards)} shards in {shard_dir}", flush=True)
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(message, flush=True)
 
     def __iter__(self) -> Iterable:
         shards = list(self.shards)
@@ -124,13 +133,69 @@ class ShardedLichessDataset(IterableDataset):
             random.shuffle(shards)
 
         worker_info = torch.utils.data.get_worker_info()
+        worker_label = "main" if worker_info is None else f"worker-{worker_info.id}"
         if worker_info is not None:
             shards = shards[worker_info.id :: worker_info.num_workers]
 
+        self._log(
+            f"[LichessStream:{worker_label}] starting stream | shards={len(shards)} | "
+            f"buffer_size={self.buffer_size} | min_depth={self.min_depth} | min_elo={self.min_elo}"
+        )
         buffer = []
+        total_yielded = 0
+        stream_start = time.perf_counter()
+        first_sample_announced = False
 
-        for shard_path in shards:
+        def flush_buffer(shard_name: str):
+            nonlocal buffer
+            nonlocal total_yielded
+            nonlocal first_sample_announced
+
+            random.shuffle(buffer)
+            buffer_total = len(buffer)
+
+            for line_idx, b_line in enumerate(buffer, start=1):
+                if (
+                    not first_sample_announced
+                    and line_idx % 5000 == 0
+                ):
+                    elapsed = time.perf_counter() - stream_start
+                    self._log(
+                        f"[LichessStream:{worker_label}] still waiting for first training sample from {shard_name}: "
+                        f"{line_idx:,}/{buffer_total:,} raw lines processed in {elapsed:.1f}s"
+                    )
+
+                sample = self._process_line(b_line)
+                if sample:
+                    total_yielded += 1
+                    if total_yielded == 1:
+                        first_sample_announced = True
+                        elapsed = time.perf_counter() - stream_start
+                        self._log(
+                            f"[LichessStream:{worker_label}] first training sample ready after {elapsed:.2f}s"
+                        )
+                    if (
+                        self.progress_every_samples > 0
+                        and total_yielded % self.progress_every_samples == 0
+                    ):
+                        elapsed = time.perf_counter() - stream_start
+                        self._log(
+                            f"[LichessStream:{worker_label}] yielded {total_yielded:,} samples total in {elapsed:.1f}s"
+                        )
+                    yield sample
+
+            buffer = []
+
+        for shard_idx, shard_path in enumerate(shards, start=1):
             is_zst = shard_path.endswith(".zst")
+            shard_name = os.path.basename(shard_path)
+            first_buffer_announced = False
+            self._log(
+                f"[LichessStream:{worker_label}] opening shard {shard_idx}/{len(shards)}: {shard_name}"
+            )
+            self._log(
+                f"[LichessStream:{worker_label}] filling shuffle buffer with {self.buffer_size} raw lines before first batch"
+            )
 
             if is_zst:
                 if zstd is None:
@@ -145,31 +210,33 @@ class ShardedLichessDataset(IterableDataset):
                             if self._pre_filter(line):
                                 buffer.append(line)
                                 if len(buffer) >= self.buffer_size:
-                                    random.shuffle(buffer)
-                                    for b_line in buffer:
-                                        sample = self._process_line(b_line)
-                                        if sample:
-                                            yield sample
-                                    buffer = []
+                                    if not first_buffer_announced:
+                                        self._log(
+                                            f"[LichessStream:{worker_label}] first buffer ready from {shard_name}; shuffling and decoding"
+                                        )
+                                        first_buffer_announced = True
+                                    yield from flush_buffer(shard_name)
             else:
                 with open(shard_path, "r", encoding="utf-8") as f:
                     for line in f:
                         if self._pre_filter(line):
                             buffer.append(line)
                             if len(buffer) >= self.buffer_size:
-                                random.shuffle(buffer)
-                                for b_line in buffer:
-                                    sample = self._process_line(b_line)
-                                    if sample:
-                                        yield sample
-                                buffer = []
+                                if not first_buffer_announced:
+                                    self._log(
+                                        f"[LichessStream:{worker_label}] first buffer ready from {shard_name}; shuffling and decoding"
+                                    )
+                                    first_buffer_announced = True
+                                yield from flush_buffer(shard_name)
 
         if buffer:
-            random.shuffle(buffer)
-            for b_line in buffer:
-                sample = self._process_line(b_line)
-                if sample:
-                    yield sample
+            last_shard_name = os.path.basename(shards[-1]) if shards else "buffer"
+            yield from flush_buffer(last_shard_name)
+
+        elapsed = time.perf_counter() - stream_start
+        self._log(
+            f"[LichessStream:{worker_label}] stream finished | yielded {total_yielded:,} samples in {elapsed:.1f}s"
+        )
 
     def _pre_filter(self, line: str) -> bool:
         """Lightweight check to see if we should even parse the JSON."""
@@ -200,11 +267,13 @@ class ShardedLichessDataset(IterableDataset):
             move = chess.Move.from_uci(rec["move"])
 
             board_tensor = encode_board(board, history=history_boards)
+            if not isinstance(board_tensor, torch.Tensor):
+                board_tensor = torch.from_numpy(board_tensor)
             move_idx = encode_move(move)
             value_target = float(np.tanh(rec["cp"] / 400.0))
 
             return (
-                torch.from_numpy(board_tensor),
+                board_tensor,
                 torch.tensor(move_idx, dtype=torch.long),
                 torch.tensor(value_target, dtype=torch.float32),
             )

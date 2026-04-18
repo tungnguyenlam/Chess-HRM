@@ -5,6 +5,10 @@ Wrapper scripts for easy training of the HRM Chess model. All scripts use defaul
 ## Quick Start
 
 ```bash
+# Rebuild the local venv with Python 3.13 on Apple Silicon
+deactivate 2>/dev/null || true
+bash scripts/setup_mac_env.sh --recreate
+
 # Step 1: Supervised training on Lichess data
 python scripts/s1_supervised.py --data /path/to/lichess.jsonl
 
@@ -14,6 +18,9 @@ python scripts/s2_distill.py --data /path/to/stockfish_soft.jsonl --checkpoint c
 # Step 3: Evaluate against Stockfish
 python scripts/s3_eval.py --checkpoint checkpoints/distill/epoch_2.pt
 ```
+
+If an older `.venv` is already active, deactivate it first or set
+`PYTHON_BIN=python3.13` explicitly.
 
 ## Available Scripts
 
@@ -41,7 +48,10 @@ python scripts/s1_supervised.py --data ... --config full
 All scripts support:
 - `--config`: Model config (`mac_mini` or `full`)
 - `--device`: Device selection (`auto`, `cuda`, `mps`, `cpu`)
+- `--forward_dtype`: Forward dtype (`auto`, `float32`, `float16`, `bfloat16`)
 - `--wandb`: Enable wandb logging
+
+On Apple Silicon, start with `--device mps --forward_dtype auto --num_workers 0`. The auto dtype resolves to stable `float32` on MPS; treat `float16` as explicit opt-in.
 
 ## Checkpoint Management
 

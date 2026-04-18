@@ -309,3 +309,207 @@ Copy this template for each new entry:
 - **Result**: Implemented `GABSnapshot`, `ACTDepthRecord`, and game phase classifier.
 - **Conclusion**: Scaffolding is ready for Phase 5 ablation and interpretability studies.
 - **Follow-up**: Run model and log visualizations to proceed with interpretability experiments.
+
+### DATA-001: Extract Lichess Elite Dataset (Memory & Storage Optimized)
+- **Date**: 2026-04-17
+- **PLAN.md step**: 0.5
+- **Hypothesis**: The raw 209GB PGN file will exceed available SSD space when uncompressed. We must stream-process the 209GB PGN into compressed JSONL shards (.jsonl.zst), then compress the original PGN to `.zst` and remove the raw `.pgn` to reclaim storage.
+- **Setup**:
+  - Script: `scripts/convert_pgn.py`
+  - Max Games Phase 1: 75,000 (~5M positions)
+  - Max Games Phase 2: 30,000 (~2M positions)
+  - Target: `data-lichess/phase1` and `data-lichess/phase2`
+- **Command**: Python extraction followed by `zstd --rm`
+- **Status**: DONE
+- **Result**:
+  - Phase 1 generated 5,480,742 records across 2 shards (`data-lichess/phase1`).
+  - Phase 2 generated 2,179,981 records across 1 shard (`data-lichess/phase2`).
+  - Compressed the 209GB raw Lichess PGN using `zstd --rm` to ~40GB to reclaim ~169GB of SSD storage.
+- **Conclusion**: The large Lichess dataset is now processed into compressed shards suitable for `ShardedLichessDataset`, and storage space has been recovered successfully.
+- **Follow-up**: Proceed to train on Phase 1 dataset.
+
+### BUG-002: CPU Training Fails with Multi-Worker DataLoader
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 3.1
+- **Symptoms**:
+  - `tests/test_supervised_train.py` fails on CPU when `DataLoader(num_workers=4)` tries to launch `torch_shm_manager`.
+  - `tests/test_distill_train.py` fails the same way on CPU after soft-label generation.
+- **Reproduction**:
+  - `.venv/bin/python tests/test_supervised_train.py`
+  - `.venv/bin/python tests/test_distill_train.py`
+- **Status**: DONE
+- **Result**:
+  - Root cause was the hardcoded worker policy in the training loops: CPU fell into the multi-worker shared-memory path even when the environment only supported single-process loading.
+  - Added a shared runtime helper that defaults CPU/MPS to `num_workers=0`, keeps CUDA at `4`, and warns when local CPU/MPS runs explicitly request spawned workers.
+  - `tests/test_supervised_train.py`, `tests/test_distill_train.py`, and the full test suite now pass with the new runtime policy.
+- **Conclusion**: Fixed by making worker selection device-aware and reusing that logic across training/eval entrypoints.
+
+### TRAIN-SV-001: Phase 1 Supervised Epoch Validation on Real Shards
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.2
+- **Hypothesis**: After fixing the runtime path, a conservative CPU run should complete one supervised epoch over `data-lichess/phase1` and emit a checkpoint without shared-memory worker failures.
+- **Setup**:
+  - Hardware: CPU-only sandbox, Apple Silicon host, MPS unavailable to this process
+  - Config: `mac_mini` with `--device cpu --num_workers 0 --epochs 1`
+  - Seed: Not fixed
+  - Commit: `b62d1b4`
+- **Command**: `.venv/bin/python scripts/s1_supervised.py --data data-lichess/phase1 --config mac_mini --epochs 1 --device cpu --num_workers 0 --checkpoint_dir /tmp/hrm-gab-supervised-smoke`
+- **Status**: RUNNING
+- **Result**:
+  - Pending
+- **Conclusion**: Pending
+- **Artifacts**:
+  - Checkpoint: `/tmp/hrm-gab-supervised-smoke`
+- **Follow-up**: Run full regression tests after the runtime fix, then inspect the epoch logs for any additional training issues.
+
+### BUG-003: ShardedLichessDataset Returned No Samples
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 2.2
+- **Symptoms**:
+  - Real Phase 1 training appeared to hang after shard startup even with progress logging enabled.
+  - Loader decoded tens of thousands of records without ever producing a first batch.
+- **Root Cause**:
+  - `ShardedLichessDataset._process_line()` called `torch.from_numpy(board_tensor)` even though `encode_board()` already returns a `torch.Tensor`.
+  - The resulting exception was swallowed by the dataset’s broad `except Exception`, so every record was silently dropped.
+- **Fix**:
+  - Made `_process_line()` accept the existing tensor output from `encode_board()`.
+  - Added a regression test covering `ShardedLichessDataset` iteration.
+- **Status**: DONE
+- **Result**:
+  - `tests/test_data_pipeline.py` now includes a streaming-shard test and passes.
+  - Real Phase 1 training now reaches live optimizer steps on `data-lichess/phase1`.
+- **Conclusion**: The apparent training “hang” was primarily silent sample loss in the sharded loader, not model deadlock.
+
+### SMOKE-TRAIN-SV-002: Live Phase 1 Progress Logging Validation
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.2
+- **Command**: `.venv/bin/python scripts/s1_supervised.py --data data-lichess/phase1 --config mac_mini --epochs 1 --device cpu --num_workers 0 --batch_size 8 --accum_steps 1 --min_elo 1800 --checkpoint_dir /tmp/hrm-gab-supervised-smoke`
+- **Status**: DONE
+- **Result**:
+  - Added immediate logging for runtime config, shard open, buffer warmup, first sample, first batch, and optimizer-step loss.
+  - Fixed wrapper behavior so explicit `--accum_steps 1` is respected instead of silently reverting to the config value of 16.
+  - Verified real training output through step 240 before manual interrupt, with per-step timing and loss visible.
+- **Conclusion**: The supervised entrypoint now provides enough live output to distinguish data-loading work from actual stalls.
+- **Follow-up**: If desired, mirror the same verbose progress reporting into the distillation loop.
+
+### ENV-002: Apple Silicon Runtime Policy and Python Target Alignment
+- **Date**: 2026-04-18
+- **PLAN.md step**: 0.1, 2.1, 3.1
+- **Hypothesis**: A unified runtime policy plus a Python 3.13 bootstrap script will make local Apple Silicon runs more predictable than the current stale Python 3.9 venv path.
+- **Setup**:
+  - Hardware: M4 Mac Mini, 16GB unified memory
+  - Focus: local environment bootstrap, runtime auto-dtype, worker warnings
+- **Command**: `.venv/bin/python --version`
+- **Status**: DONE
+- **Result**:
+  - Active repo venv is still `Python 3.9.6`.
+  - System `python3` is `Python 3.13.12`.
+  - `.venv` reports `torch 2.8.0`, `mps_built=True`, `mps_available=False` for this process.
+  - Added `scripts/setup_mac_env.sh` to rebuild or reuse the local venv from `python3`, install dependencies, and print the resolved Torch/MPS status.
+- **Conclusion**: The codebase now has a reproducible Python 3.13 bootstrap path, but this sandboxed process still does not expose MPS even though the Torch build includes it.
+- **Artifacts**:
+  - Script: `scripts/setup_mac_env.sh`
+- **Follow-up**: Run runtime tests and record the active interpreter situation.
+
+### SMOKE-RUNTIME-001: Runtime Auto-Dtype and Worker Policy Validation
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 3.1
+- **Hypothesis**: The shared runtime helper should resolve `forward_dtype=auto` correctly for CPU/MPS/CUDA and warn when macOS-style worker settings are risky.
+- **Setup**:
+  - Test: `tests/test_runtime.py`
+- **Command**: `.venv/bin/python -m pytest tests/test_runtime.py -x -v`
+- **Status**: DONE
+- **Result**:
+  - `.venv/bin/python -m pytest tests/test_runtime.py -x -v` passed (`6/6`).
+  - Verified `forward_dtype=auto` resolves to `float32` on CPU, `float16` on MPS, and `bfloat16` on CUDA by policy.
+  - Verified explicit low-precision requests fall back safely on unsupported local targets and emit warnings.
+- **Conclusion**: Runtime selection is now explicitly tested instead of being spread across entrypoints.
+- **Follow-up**: Re-run supervised and distillation smokes after the runtime helper passes.
+
+### FULL-REGRESSION-002: Full Test Suite After Runtime Unification
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 3.1, 4.1, 4.2
+- **Hypothesis**: Unifying runtime selection across training, evaluation, UCI, and RL should preserve the existing test suite behavior.
+- **Setup**:
+  - Scope: full `tests/` suite after runtime and CLI changes
+- **Command**: `.venv/bin/python -m pytest tests/ -x -v`
+- **Status**: DONE
+- **Result**:
+  - `.venv/bin/python -m pytest tests/ -x -v` passed (`118 passed`) in `233.27s`.
+  - Existing warnings were limited to `urllib3` LibreSSL and `matplotlib` deprecations; no new test failures were introduced by the runtime unification.
+- **Conclusion**: Runtime, CLI, evaluation, and RL path changes did not regress the repo test suite.
+- **Follow-up**: If the suite passes, attempt an MPS availability check for the sandboxed environment.
+
+### SMOKE-TRAIN-MPS-001: Apple Silicon MPS Supervised Startup Validation
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.2
+- **Hypothesis**: The supervised wrapper should resolve `--forward_dtype auto` to `float16` on MPS, emit live progress quickly, and keep `num_workers=0` for a low-RAM local run.
+- **Setup**:
+  - Command target: `scripts/s1_supervised.py`
+  - Config: `mac_mini`
+- **Command**: `.venv/bin/python scripts/s1_supervised.py --data data-lichess/phase1 --config mac_mini --epochs 1 --device mps --forward_dtype auto --num_workers 0 --accum_steps 1 --wandb --checkpoint_dir /tmp/hrm-gab-mps-smoke`
+- **Status**: FAILED
+- **Result**:
+  - The real user-side MPS run reached the first batch and first carry initialization, then aborted inside Apple’s MPS matmul path with:
+    `/AppleInternal/.../MPSNDArrayMatrixMultiplication.mm:641: failed assertion 'LORADOWN GEMV Kernel - matrixRowPadElements will overflow its fc bit allocation.'`
+  - The failing command resolved to `device=mps forward_dtype=float16 num_workers=0`.
+- **Conclusion**: `forward_dtype=auto -> float16` is not stable for this project on the current Apple/PyTorch stack. The default MPS auto-dtype needs to fall back to float32.
+- **Artifacts**:
+  - Checkpoint: `/tmp/hrm-gab-mps-smoke`
+  - W&B run: `https://wandb.ai/chess/hrm-gab-chess/runs/u64fwhzr`
+- **Follow-up**: Patch runtime auto-dtype policy for MPS and ask for a rerun on the real machine.
+
+### BUG-004: MPS Float16 Training Aborts in First Matmul
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 2.2
+- **Symptoms**:
+  - Real MPS supervised training aborts after the first batch with an Apple MPS matmul assertion.
+  - Failure appears on the first model forward pass after `Runtime: device=mps forward_dtype=float16 num_workers=0`.
+- **Reproduction**:
+  - `.venv/bin/python scripts/s1_supervised.py --data data-lichess/phase1 --config mac_mini --epochs 1 --device mps --forward_dtype auto --num_workers 0 --accum_steps 1 --wandb --checkpoint_dir /tmp/hrm-gab-mps-smoke`
+- **Status**: DONE
+- **Result**:
+  - Updated the shared runtime policy so `forward_dtype=auto` now resolves to stable `float32` on MPS.
+  - Kept `--forward_dtype float16` available as explicit opt-in and emit a warning that float16 MPS matmul can crash on some Apple/PyTorch stacks.
+  - Updated runtime tests and reran the full test suite successfully after the policy change.
+- **Conclusion**: The repo default now prioritizes MPS stability over risky float16 speedups. Real hardware rerun is still needed to confirm the original command no longer aborts.
+- **Follow-up**: Make MPS `auto` resolve to stable `float32`, keep `float16` as explicit opt-in, then rerun validation.
+
+### SMOKE-RUNTIME-002: MPS Stability Runtime Policy Regression
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1
+- **Hypothesis**: After the MPS crash, `forward_dtype=auto` should resolve to stable `float32` on MPS while keeping explicit `float16` available as opt-in.
+- **Setup**:
+  - Test: `tests/test_runtime.py`
+- **Command**: `.venv/bin/python -m pytest tests/test_runtime.py -x -v`
+- **Status**: DONE
+- **Result**:
+  - `.venv/bin/python -m pytest tests/test_runtime.py -x -v` passed (`7/7`).
+  - Verified `forward_dtype=auto` now resolves to `float32` on MPS and explicit `float16` remains opt-in with a warning.
+- **Conclusion**: The runtime helper now encodes the safer MPS default explicitly.
+- **Follow-up**: Re-run the full suite after the runtime policy change.
+
+### FULL-REGRESSION-003: Full Test Suite After MPS Stability Fallback
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 3.1, 4.1, 4.2
+- **Hypothesis**: Switching MPS auto-dtype from float16 to float32 should preserve repo behavior while avoiding the newly discovered Apple MPS matmul crash.
+- **Setup**:
+  - Scope: full `tests/` suite after the MPS runtime fallback
+- **Command**: `.venv/bin/python -m pytest tests/ -x -v`
+- **Status**: DONE
+- **Result**:
+  - `.venv/bin/python -m pytest tests/ -x -v` passed (`119 passed`) in `197.54s`.
+  - The only warnings were the pre-existing `urllib3` LibreSSL and `matplotlib` deprecation warnings.
+- **Conclusion**: The MPS stability fallback did not regress the repo test suite.
+
+### BUG-005: setup_mac_env.sh Could Recreate .venv From the Active 3.9 Interpreter
+- **Date**: 2026-04-18
+- **PLAN.md step**: 0.1
+- **Symptoms**:
+  - Running `bash scripts/setup_mac_env.sh --recreate` from inside the active `.venv` could rebuild `.venv` using `.venv/bin/python3`, preserving the old Python 3.9 interpreter.
+- **Fix**:
+  - Updated `scripts/setup_mac_env.sh` to prefer an external Python 3.13 launcher (`python3.13`, Homebrew, then other `python3`) and to skip interpreters inside the active `VIRTUAL_ENV` unless `PYTHON_BIN` is set explicitly.
+  - Verified the shell script syntax with `bash -n scripts/setup_mac_env.sh`.
+- **Status**: DONE
+- **Conclusion**: The environment bootstrap script is now robust against recreating the venv from the currently activated old venv.
+- **Follow-up**: Ask for a user-side rerun of the MPS supervised smoke.

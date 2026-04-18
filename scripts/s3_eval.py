@@ -8,16 +8,15 @@ Usage:
 Default config from chess.yaml (mac_mini): 7M params.
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
-from omegaconf import OmegaConf
 
-# Load chess.yaml defaults
-chess_cfg = OmegaConf.load("config/chess.yaml")
+from evaluate_chess import evaluate
+
 
 parser = argparse.ArgumentParser(description="HRMChess Evaluation")
 parser.add_argument(
@@ -42,6 +41,12 @@ parser.add_argument(
     "--device", type=str, default="auto", help="Device: auto, cuda, mps, cpu"
 )
 parser.add_argument(
+    "--forward_dtype",
+    type=str,
+    default="auto",
+    help="Forward dtype override: auto, float32, float16, or bfloat16",
+)
+parser.add_argument(
     "--time_limit",
     type=float,
     default=0.5,
@@ -50,69 +55,13 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-import torch
-from chessgame.model.hrm_chess import HRMChess
-from chessgame.model.hrm_chess_config import HRMChessConfig
-import chess.engine
-
-config = HRMChessConfig.full() if args.config == "full" else HRMChessConfig.mac_mini()
-model = HRMChess(config)
-
-# Load checkpoint
-state = torch.load(args.checkpoint, map_location="cpu")
-model.load_state_dict(state["model"])
-print(f"Loaded checkpoint: {args.checkpoint}")
-
-# Device
-if args.device == "auto":
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-else:
-    device = torch.device(args.device)
-
-model = model.to(device)
-model.eval()
-
-# Stockfish engine
-engine = chess.engine.SimpleEngine.popen_uci(args.stockfish_path)
-engine.configure({"Skill Level": max(0, min(20, args.sf_elo // 100))})
-
-from evaluate_chess import play_game
-
-print(f"Playing {args.games} games vs Stockfish @ Elo {args.sf_elo}...")
-
-results = []
-model_carry = None
-
-for i in range(args.games):
-    model_plays_white = i % 2 == 0
-    result = play_game(
-        model=model,
-        engine=engine,
-        model_plays_white=model_plays_white,
-        sf_time_limit=args.time_limit,
-        device=device,
-    )
-    results.append(result)
-    print(
-        f"Game {i + 1}: {'Model wins' if result == 1 else 'Stockfish wins' if result == -1 else 'Draw'} (as {'white' if model_plays_white else 'black'})"
-    )
-
-engine.quit()
-
-# Summary
-wins = sum(1 for r in results if r == 1)
-losses = sum(1 for r in results if r == -1)
-draws = sum(1 for r in results if r == 0)
-
-print(f"\nResults: {wins}W / {draws}D / {losses}L")
-win_rate = (wins + 0.5 * draws) / len(results)
-print(f"Win rate: {win_rate:.2%}")
-
-if win_rate > 0 and win_rate < 1:
-    elo_diff = 400 * (win_rate / (1 - win_rate)) ** 0.5  # Simplified
-    print(f"Estimated model Elo: ~{args.sf_elo + elo_diff:.0f}")
+evaluate(
+    checkpoint_path=args.checkpoint,
+    config_name=args.config,
+    sf_path=args.stockfish_path,
+    sf_elo=args.sf_elo,
+    n_games=args.games,
+    sf_time_limit=args.time_limit,
+    device_str=args.device,
+    forward_dtype_str=args.forward_dtype,
+)

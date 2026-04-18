@@ -14,14 +14,16 @@
 ### 1. Setup Environment
 
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
+# Recommended on Apple Silicon: build the training venv with Python 3.13
+deactivate 2>/dev/null || true
+bash scripts/setup_mac_env.sh --recreate
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install pytest wandb omegaconf python-chess
 ```
+
+If you prefer manual setup, use `python3` from your Homebrew path or shell PATH.
+Python `3.13` is the recommended local target. The checked-in `.venv` may still
+be older. If you are already inside an older virtualenv, deactivate it first or
+set `PYTHON_BIN=python3.13` when running the setup script.
 
 ### 2. Verify Installation (Smoke Tests)
 
@@ -35,32 +37,49 @@ python -m pytest tests/ -v
 ### 3. Training & Evaluation Pipeline
 
 #### Phase 1: Supervised Training (Lichess Elite)
-Train on a JSONL dataset of Lichess positions.
+Train on the Phase 1 shard directory generated under `data-lichess/phase1`.
 
 ```bash
 # Test with dummy data (Smoke Test)
 python tests/test_supervised_train.py
 
-# Full Supervised Run (Mac Mini config)
-python -m chessgame.train.supervised \
-    --data data/lichess_elite.jsonl \
+# Full supervised run from chess.yaml defaults
+python scripts/s1_supervised.py \
+    --data data-lichess/phase1 \
     --config mac_mini \
     --epochs 5 \
-    --batch_size 32 \
-    --lr 1e-4 \
     --checkpoint_dir checkpoints/supervised
+
+# Apple Silicon low-RAM run with MPS and early W&B metrics
+python scripts/s1_supervised.py \
+    --data data-lichess/phase1 \
+    --config mac_mini \
+    --epochs 1 \
+    --device mps \
+    --forward_dtype auto \
+    --num_workers 0 \
+    --wandb \
+    --checkpoint_dir /tmp/hrm-gab-mps-smoke
+
+# Conservative CPU/sandbox run
+python scripts/s1_supervised.py \
+    --data data-lichess/phase1 \
+    --config mac_mini \
+    --epochs 1 \
+    --device cpu \
+    --num_workers 0 \
+    --checkpoint_dir /tmp/hrm-gab-supervised-smoke
 ```
 
 #### Phase 2: Stockfish Distillation
 Fine-tune using soft-labels from Stockfish MultiPV.
 
 ```bash
-python -m chessgame.train.distill \
-    --data data/stockfish_soft.jsonl \
+python scripts/s2_distill.py \
+    --data data-lichess/phase2 \
     --checkpoint checkpoints/supervised/epoch_5.pt \
     --config mac_mini \
     --epochs 2 \
-    --lr 3e-5 \
     --checkpoint_dir checkpoints/distill
 ```
 
@@ -103,6 +122,14 @@ print(f'Accuracy: {report.accuracy:.2%}')"
 - [x] **Phase 3: Distillation** (Training loop, Generation script, Resumption logic)
 - [x] **Phase 4: RL Self-Play** (MCTS, Self-Play loop)
 - [ ] **Phase 5: Ablation Studies** (Planned)
+
+## Local Performance Notes
+
+- Apple Silicon runs should prefer `--device mps --forward_dtype auto`, which now resolves to stable `float32` on MPS.
+- Local CPU and MPS runs default to `num_workers=0` to avoid the higher RAM cost
+  and stability issues of spawned DataLoader workers on macOS.
+- Training now prints `data_wait`, `step_time`, and `samples_per_sec` so a slow
+  run is distinguishable from a real hang.
 
 ---
 

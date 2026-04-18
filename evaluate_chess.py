@@ -25,6 +25,7 @@ from chessgame.model.hrm_chess import HRMChess
 from chessgame.model.hrm_chess_config import HRMChessConfig
 from chessgame.encoding.board_encoder import encode_board
 from chessgame.encoding.move_encoder import decode_move, legal_mask
+from chessgame.train.runtime import log_runtime, resolve_training_runtime
 
 
 _OUTCOME_MAP = {"1-0": 1.0, "0-1": -1.0, "1/2-1/2": 0.0}
@@ -36,9 +37,10 @@ def get_model_move(
     board: chess.Board,
     carry,
     device: torch.device,
+    target_dtype: torch.dtype,
 ) -> tuple[chess.Move, object]:
     """Run one forward pass and pick the highest-scoring legal move."""
-    board_t = encode_board(board, history=[]).unsqueeze(0).to(device)
+    board_t = encode_board(board, history=[]).unsqueeze(0).to(device).to(target_dtype)
     B = 1
     batch = {
         "inputs": board_t,
@@ -71,6 +73,7 @@ def play_game(
     model_plays_white: bool,
     sf_time_limit: float,
     device: torch.device,
+    target_dtype: torch.dtype,
     max_moves: int = 200,
 ) -> float:
     """
@@ -82,7 +85,13 @@ def play_game(
 
     while not board.is_game_over() and board.fullmove_number <= max_moves:
         if board.turn == model_color:
-            move, model_carry = get_model_move(model, board, model_carry, device)
+            move, model_carry = get_model_move(
+                model,
+                board,
+                model_carry,
+                device,
+                target_dtype,
+            )
         else:
             result = engine.play(board, chess.engine.Limit(time=sf_time_limit))
             move = result.move
@@ -104,25 +113,23 @@ def evaluate(
     n_games: int = 20,
     sf_time_limit: float = 0.1,
     device_str: str = "auto",
+    forward_dtype_str: str = "auto",
 ) -> float:
-    # Device
-    if device_str == "auto":
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
-    else:
-        device = torch.device(device_str)
-
     # Model
     config = (
         HRMChessConfig.full() if config_name == "full" else HRMChessConfig.mac_mini()
     )
+    runtime = resolve_training_runtime(
+        config=config,
+        device_str=device_str,
+        forward_dtype_str=forward_dtype_str,
+    )
+    log_runtime(runtime, lambda message: print(message, flush=True))
+
+    device = runtime.device
+    target_dtype = runtime.forward_dtype
+
     model = HRMChess(config).to(device)
-    if device.type in ("cuda", "mps"):
-        model = model.to(torch.bfloat16)
 
     state = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state["model"])
@@ -137,7 +144,14 @@ def evaluate(
 
     for i in range(n_games):
         model_white = i % 2 == 0
-        result = play_game(model, engine, model_white, sf_time_limit, device)
+        result = play_game(
+            model,
+            engine,
+            model_white,
+            sf_time_limit,
+            device,
+            target_dtype,
+        )
 
         if not model_white:
             result = -result  # normalise to model's perspective
@@ -180,6 +194,11 @@ def main():
         "--sf_time", type=float, default=0.1, help="Stockfish time per move in seconds"
     )
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--forward_dtype",
+        default="auto",
+        help="Forward dtype override: auto, float32, float16, or bfloat16",
+    )
     args = parser.parse_args()
 
     evaluate(
@@ -190,6 +209,7 @@ def main():
         n_games=args.games,
         sf_time_limit=args.sf_time,
         device_str=args.device,
+        forward_dtype_str=args.forward_dtype,
     )
 
 

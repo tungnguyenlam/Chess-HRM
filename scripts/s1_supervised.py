@@ -38,7 +38,10 @@ parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
 parser.add_argument("--weight_decay", type=float, default=1e-2, help="Weight decay")
 parser.add_argument("--grad_clip", type=float, default=1.0, help="Gradient clipping")
-parser.add_argument("--min_depth", type=int, default=18, help="Min game depth filter")
+parser.add_argument("--min_depth", type=int, default=0, help="Min game depth filter")
+parser.add_argument(
+    "--warmup_steps", type=int, default=None, help="LR warmup steps override"
+)
 parser.add_argument(
     "--checkpoint_dir",
     type=str,
@@ -52,10 +55,23 @@ parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
 parser.add_argument(
     "--accum_steps", type=int, default=1, help="Gradient accumulation steps"
 )
-parser.add_argument("--min_elo", type=int, default=0, help="Min Elo filter")
+parser.add_argument(
+    "--num_workers", type=int, default=None, help="DataLoader workers override"
+)
+parser.add_argument(
+    "--log_every_steps", type=int, default=None, help="Optimizer-step logging interval"
+)
+parser.add_argument(
+    "--forward_dtype",
+    type=str,
+    default=None,
+    help="Forward dtype override: auto, float32, float16, or bfloat16",
+)
+parser.add_argument("--min_elo", type=int, default=1800, help="Min Elo filter")
 parser.add_argument("--curriculum", action="store_true", help="Enable Elo curriculum")
 
 args = parser.parse_args()
+provided_flags = set(sys.argv[1:])
 
 # Get config defaults
 cfg = chess_cfg[args.config]
@@ -75,15 +91,33 @@ weight_decay = (
 grad_clip = (
     args.grad_clip if args.grad_clip != 1.0 else supervised_cfg.get("grad_clip", 1.0)
 )
-min_depth = (
-    args.min_depth if args.min_depth != 18 else supervised_cfg.get("min_depth", 18)
+# Use CLI arg for min_depth/min_elo if provided, otherwise check config, otherwise use our new defaults
+min_depth = args.min_depth
+min_elo = args.min_elo
+warmup_steps = (
+    args.warmup_steps
+    if args.warmup_steps is not None
+    else supervised_cfg.get("warmup_steps", 500)
 )
-min_elo = args.min_elo if args.min_elo != 0 else supervised_cfg.get("min_elo", 0)
-warmup_steps = supervised_cfg.get("warmup_steps", 500)
-accum_steps = (
-    supervised_cfg.get("accum_steps", 1)
-    if args.config == "mac_mini"
-    else args.accum_steps
+
+# If --accum_steps is present on the CLI, always respect it.
+# Otherwise fall back to the config value when available.
+accum_steps = args.accum_steps
+if "--accum_steps" not in provided_flags and "accum_steps" in supervised_cfg:
+    accum_steps = supervised_cfg["accum_steps"]
+
+num_workers = (
+    args.num_workers
+    if args.num_workers is not None
+    else supervised_cfg.get("num_workers")
+)
+log_every_steps = (
+    args.log_every_steps
+    if args.log_every_steps is not None
+    else supervised_cfg.get("log_every_steps", 10)
+)
+forward_dtype = (
+    args.forward_dtype if args.forward_dtype is not None else cfg.get("forward_dtype")
 )
 
 from chessgame.train.supervised import train
@@ -103,5 +137,9 @@ train(
     device_str=args.device,
     use_wandb=args.wandb,
     accum_steps=accum_steps,
+    warmup_steps=warmup_steps,
+    num_workers=num_workers,
+    log_every_steps=log_every_steps,
+    forward_dtype_str=forward_dtype,
     resume_from=args.checkpoint,
 )

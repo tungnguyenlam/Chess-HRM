@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import pytest
 
-from chessgame.data.lichess_dataset import LichessEliteDataset
+from chessgame.data.lichess_dataset import LichessEliteDataset, ShardedLichessDataset
 from chessgame.data.stockfish_dataset import StockfishSoftDataset
 from chessgame.data.replay_buffer import ReplayBuffer
 from chessgame.encoding.move_encoder import NUM_MOVES
@@ -56,6 +56,38 @@ def lichess_jsonl(tmp_path):
         for r in records:
             f.write(json.dumps(r) + "\n")
     return str(path)
+
+
+@pytest.fixture
+def lichess_shard_dir(tmp_path):
+    """Create a shard directory with one JSONL shard for streaming tests."""
+    records = [
+        {
+            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "move": "e7e5",
+            "cp": -30,
+            "depth": 1,
+            "white_elo": 2200,
+            "black_elo": 2250,
+            "history": [],
+        },
+        {
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "move": "e2e4",
+            "cp": 30,
+            "depth": 1,
+            "white_elo": 2100,
+            "black_elo": 2120,
+            "history": [],
+        },
+    ]
+    shard_dir = tmp_path / "phase1"
+    shard_dir.mkdir()
+    shard_path = shard_dir / "shard_0000.jsonl"
+    with open(shard_path, "w") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+    return str(shard_dir)
 
 
 @pytest.fixture
@@ -140,6 +172,26 @@ class TestLichessEliteDataset:
         decoded = decode_move(move_idx.item())
         assert decoded is not None
         assert decoded.uci() == "e7e5"
+
+
+class TestShardedLichessDataset:
+    """Tests for the streaming shard dataset used in full supervised runs."""
+
+    def test_streams_samples(self, lichess_shard_dir):
+        ds = ShardedLichessDataset(
+            lichess_shard_dir,
+            min_depth=0,
+            min_elo=1800,
+            shuffle_shards=False,
+            buffer_size=1,
+        )
+
+        board_t, move_idx, value_t = next(iter(ds))
+        assert board_t.shape == (8, 8, 119)
+        assert board_t.dtype == torch.float32
+        assert move_idx.dtype == torch.long
+        assert 0 <= move_idx.item() < NUM_MOVES
+        assert value_t.dtype == torch.float32
 
 
 # ---------------------------------------------------------------------------

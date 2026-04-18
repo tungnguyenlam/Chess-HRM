@@ -21,6 +21,7 @@ full:
   num_puzzle_identifiers: 1
   puzzle_emb_ndim: 0
   pos_encodings: rope
+  forward_dtype: auto
 
   # GAB (Geometric Attention Bias)
   gab:
@@ -37,6 +38,8 @@ full:
     grad_clip: 1.0
     min_depth: 18
     warmup_steps: 500
+    num_workers: 4
+    log_every_steps: 10
 
   # Phase 3 distillation
   distill:
@@ -47,6 +50,9 @@ full:
     grad_clip: 1.0
     min_depth: 12
     temperature: 100.0
+    warmup_steps: 200
+    num_workers: 4
+    log_every_steps: 10
 
   # Phase 4 RL
   rl:
@@ -79,7 +85,7 @@ mac_mini:
   num_puzzle_identifiers: 1
   puzzle_emb_ndim: 0
   pos_encodings: rope
-  forward_dtype: float32
+  forward_dtype: auto
 
   # GAB (Geometric Attention Bias)
   gab:
@@ -96,6 +102,8 @@ mac_mini:
     grad_clip: 1.0
     min_depth: 18
     warmup_steps: 200
+    num_workers: 0
+    log_every_steps: 10
 
   distill:
     batch_size: 8
@@ -106,6 +114,9 @@ mac_mini:
     grad_clip: 1.0
     min_depth: 12
     temperature: 100.0
+    warmup_steps: 200
+    num_workers: 0
+    log_every_steps: 10
 
   rl:
     batch_size: 32
