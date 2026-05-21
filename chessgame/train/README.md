@@ -46,6 +46,7 @@ Phase 2 training loop: supervised pretraining from Lichess Elite data.
 - Gradient accumulation (`--accum_steps`)
 - CPU/MPS-safe worker defaults with optional `--num_workers` override
 - Auto dtype resolution with optional `--forward_dtype` override
+- Auto-resume from the latest `epoch_*.pt` in `checkpoint_dir`
 - Per-epoch checkpointing to `checkpoint_dir/`
 - Optional Weights & Biases logging (`--wandb`)
 
@@ -90,6 +91,7 @@ python scripts/s1_supervised.py \
 | `--grad_clip` | config value | Gradient norm clipping threshold. |
 | `--min_depth` | wrapper default | Minimum position depth filter. |
 | `--checkpoint_dir` | `checkpoints/supervised` | Directory to save epoch checkpoints. |
+| `--rerun` | off | Ignore saved `epoch_*.pt` files in `checkpoint_dir` and restart from scratch. |
 | `--device` | `auto` | Device string: `cpu`, `mps`, `cuda`, or `auto`. |
 | `--forward_dtype` | config value | Forward dtype: `auto`, `float32`, `float16`, or `bfloat16`. |
 | `--num_workers` | device-aware | DataLoader workers; defaults to `0` on CPU/MPS and `4` on CUDA. |

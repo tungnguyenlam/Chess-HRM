@@ -512,4 +512,45 @@ Copy this template for each new entry:
   - Verified the shell script syntax with `bash -n scripts/setup_mac_env.sh`.
 - **Status**: DONE
 - **Conclusion**: The environment bootstrap script is now robust against recreating the venv from the currently activated old venv.
+
+### BUG-006: Supervised Resume Did Not Restore Curriculum Elo Floor
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 2.2
+- **Symptoms**:
+  - Supervised training only resumed when `--checkpoint` was passed explicitly.
+  - When resuming curriculum runs, the loader restarted from the base `min_elo` instead of the raised floor implied by completed epochs.
+- **Status**: DONE
+- **Result**:
+  - Added auto-resume helper logic for supervised training that picks the latest `epoch_*.pt` in `checkpoint_dir` when `--checkpoint` is omitted.
+  - Added `--rerun` support to clear old supervised epoch checkpoints and restart from scratch.
+  - Fixed curriculum resume so the first resumed epoch uses `min_elo + completed_epochs * 150` instead of restarting from the base floor.
+- **Conclusion**: Supervised resume behavior is now consistent with long-running curriculum training and does not require manually passing the latest checkpoint path.
+
+### SMOKE-SV-RESUME-001: Auto-Resume and Rerun Validation
+- **Date**: 2026-04-18
+- **PLAN.md step**: 2.1, 2.2
+- **Hypothesis**: The supervised entrypoint should auto-resume from the latest `epoch_*.pt` in `checkpoint_dir`, restore the curriculum Elo floor from the saved epoch, and support `--rerun` to restart cleanly.
+- **Setup**:
+  - Tests: `tests/test_supervised_resume.py`, `tests/test_supervised_train.py`
+- **Command**:
+  - `.venv/bin/python -m pytest tests/test_supervised_resume.py -x -v`
+  - `.venv/bin/python tests/test_supervised_train.py`
+  - `.venv/bin/python -m pytest tests/ -x -v`
+- **Status**: DONE
+- **Result**:
+  - `.venv/bin/python -m pytest tests/test_supervised_resume.py -x -v` passed (`4/4`).
+  - `.venv/bin/python tests/test_supervised_train.py` passed.
+  - `.venv/bin/python -m pytest tests/ -x -v` passed (`123 passed`) in `154.38s`.
+- **Conclusion**: Auto-resume, rerun cleanup, and resumed curriculum Elo floor behavior are covered by tests and did not regress the wider repo.
+
+### BUG-007: Rebuilt Python 3.13 Venv Exposed Hard Plotting Imports in Interpretability Module
+- **Date**: 2026-04-18
+- **PLAN.md step**: 0.6
+- **Symptoms**:
+  - After recreating `.venv`, `tests/test_eval.py` failed during import because `chessgame.eval.interpretability` imported `matplotlib` and `seaborn` at module import time, but those packages were not installed in the new environment.
+- **Fix**:
+  - Made plotting imports lazy/optional in `chessgame/eval/interpretability.py`.
+  - Plotting functions now raise `ImportError` only when called without the plotting dependencies installed.
+- **Status**: DONE
+- **Conclusion**: Non-plotting evaluation and interpretability scaffolding no longer depend on optional plotting packages being installed.
 - **Follow-up**: Ask for a user-side rerun of the MPS supervised smoke.

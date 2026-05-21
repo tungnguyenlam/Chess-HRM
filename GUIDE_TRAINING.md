@@ -61,13 +61,26 @@ python scripts/s1_supervised.py \
 
 To gradually expose the model to harder, higher-quality games, enable curriculum learning. This increases the minimum Elo threshold by 150 points every epoch, dynamically skipping lower-Elo games in the dataset stream.
 
+If you rerun the same command with a larger `--epochs`, the supervised script now
+auto-resumes from the latest `epoch_*.pt` in `--checkpoint_dir` and restores the
+curriculum Elo floor from the completed epoch count. Pass `--rerun` to discard
+the old epoch checkpoints in that directory and restart from epoch 1.
+
 ```bash
 python scripts/s1_supervised.py \
     --data data-lichess/phase1 \
     --config mac_mini \
     --epochs 5 \
+    --device mps \
+    --forward_dtype auto \
+    --num_workers 0 \
+    --batch_size 8 \
+    --accum_steps 16 \
+    --warmup_steps 200 \
+    --log_every_steps 10 \
     --min_elo 1800 \
     --curriculum \
+    --wandb \
     --checkpoint_dir checkpoints/supervised
 ```
 
@@ -113,10 +126,26 @@ python scripts/s2_distill.py \
 If a training run is interrupted, you can resume seamlessly from the last saved checkpoint. The script will automatically restore the model weights, optimizer state, epoch, and step count.
 
 ```bash
+# Auto-resume from the latest epoch checkpoint in checkpoint_dir
+python scripts/s1_supervised.py \
+    --data data-lichess/phase1 \
+    --config mac_mini \
+    --epochs 8 \
+    --checkpoint_dir checkpoints/supervised
+
+# Resume from an explicit checkpoint path
 python scripts/s1_supervised.py \
     --data data-lichess/phase1 \
     --checkpoint checkpoints/supervised/epoch_2.pt \
     --config mac_mini \
+    --checkpoint_dir checkpoints/supervised
+
+# Ignore old epoch checkpoints in checkpoint_dir and restart from scratch
+python scripts/s1_supervised.py \
+    --data data-lichess/phase1 \
+    --config mac_mini \
+    --epochs 5 \
+    --rerun \
     --checkpoint_dir checkpoints/supervised
 ```
 

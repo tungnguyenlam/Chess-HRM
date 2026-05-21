@@ -16,8 +16,9 @@ ACT loss is intentionally excluded here — no reward signal exists yet.
 import argparse
 import math
 import os
+import re
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -37,8 +38,83 @@ from chessgame.train.loss import total_supervised
 from chessgame.train.runtime import log_runtime, resolve_training_runtime
 
 
+_EPOCH_CHECKPOINT_RE = re.compile(r"^epoch_(\d+)\.pt$")
+
+
 def _log(message: str) -> None:
     print(message, flush=True)
+
+
+def _curriculum_min_elo(
+    base_min_elo: int,
+    epoch_index: int,
+    curriculum: bool,
+) -> int:
+    return base_min_elo + (epoch_index * 150 if curriculum else 0)
+
+
+def find_latest_epoch_checkpoint(checkpoint_dir: Optional[str]) -> Optional[str]:
+    if not checkpoint_dir or not os.path.isdir(checkpoint_dir):
+        return None
+
+    latest_epoch = -1
+    latest_path = None
+    for entry in os.listdir(checkpoint_dir):
+        match = _EPOCH_CHECKPOINT_RE.match(entry)
+        if match is None:
+            continue
+
+        epoch = int(match.group(1))
+        if epoch > latest_epoch:
+            latest_epoch = epoch
+            latest_path = os.path.join(checkpoint_dir, entry)
+
+    return latest_path
+
+
+def clear_epoch_checkpoints(checkpoint_dir: Optional[str]) -> int:
+    if not checkpoint_dir or not os.path.isdir(checkpoint_dir):
+        return 0
+
+    removed = 0
+    for entry in os.listdir(checkpoint_dir):
+        if _EPOCH_CHECKPOINT_RE.match(entry) is None:
+            continue
+        os.remove(os.path.join(checkpoint_dir, entry))
+        removed += 1
+
+    return removed
+
+
+def resolve_resume_checkpoint(
+    checkpoint_dir: Optional[str],
+    explicit_checkpoint: Optional[str] = None,
+    rerun: bool = False,
+    logger: Callable[[str], None] = _log,
+) -> Optional[str]:
+    if rerun:
+        removed = clear_epoch_checkpoints(checkpoint_dir)
+        if explicit_checkpoint:
+            logger("Rerun requested; ignoring --checkpoint and starting from scratch.")
+        if checkpoint_dir:
+            logger(
+                f"Rerun requested; removed {removed} existing epoch checkpoint(s) from "
+                f"{checkpoint_dir}"
+            )
+        return None
+
+    if explicit_checkpoint:
+        if not os.path.exists(explicit_checkpoint):
+            raise FileNotFoundError(
+                f"Checkpoint to resume from does not exist: {explicit_checkpoint}"
+            )
+        logger(f"Resume source: explicit checkpoint {explicit_checkpoint}")
+        return explicit_checkpoint
+
+    latest = find_latest_epoch_checkpoint(checkpoint_dir)
+    if latest is not None:
+        logger(f"Auto-resume: found latest checkpoint {latest}")
+    return latest
 
 
 def _build_batch(board_tensors: torch.Tensor, device: torch.device) -> dict:
@@ -123,11 +199,9 @@ def train(
         f" checkpoint_dir={checkpoint_dir}"
     )
 
-    # Initial Data
-    current_min_elo = min_elo
     is_dir = os.path.isdir(data_path)
 
-    def get_loader(elo):
+    def get_loader(elo: int):
         if is_dir:
             ds = ShardedLichessDataset(
                 data_path,
@@ -145,24 +219,6 @@ def train(
             pin_memory=(device.type == "cuda"),
             shuffle=False if is_dir else True,
         ), ds
-
-    loader, dataset = get_loader(current_min_elo)
-
-    # Estimate total steps if possible
-    if hasattr(dataset, "__len__"):
-        batches_per_epoch = math.ceil(len(dataset) / batch_size)
-        total_steps = epochs * math.ceil(batches_per_epoch / accum_steps)
-        _log(
-            f"Dataset ready: indexed | records={len(dataset):,} | "
-            f"estimated_optimizer_steps_per_epoch={math.ceil(batches_per_epoch / accum_steps):,}"
-        )
-    else:
-        # Default for streaming
-        total_steps = 1000000
-        _log(
-            "Dataset ready: streaming shards | epoch length unknown ahead of time; "
-            "progress will be reported from the loader and optimizer loop"
-        )
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     opt.zero_grad(set_to_none=True)
@@ -190,7 +246,11 @@ def train(
     step = 0
     start_epoch = 0
 
-    if resume_from and os.path.exists(resume_from):
+    if resume_from:
+        if not os.path.exists(resume_from):
+            raise FileNotFoundError(
+                f"Checkpoint to resume from does not exist: {resume_from}"
+            )
         _log(f"Resuming from {resume_from}")
         ckpt = torch.load(resume_from, map_location=device)
         model.load_state_dict(ckpt["model"])
@@ -201,15 +261,48 @@ def train(
         if "epoch" in ckpt:
             start_epoch = ckpt["epoch"]
 
+    if start_epoch >= epochs:
+        _log(
+            f"Checkpoint is already at epoch {start_epoch}; target epochs={epochs}. "
+            "Nothing to do. Increase --epochs or pass --rerun to restart."
+        )
+        if use_wandb and _WANDB:
+            wandb.finish()
+        return model
+
+    current_min_elo = _curriculum_min_elo(min_elo, start_epoch, curriculum)
+    if curriculum and start_epoch > 0:
+        _log(
+            f"Curriculum: resuming with min_elo floor {current_min_elo} based on "
+            f"completed epoch count {start_epoch}"
+        )
+
+    loader, dataset = get_loader(current_min_elo)
+
+    # Estimate total steps if possible
+    if hasattr(dataset, "__len__"):
+        batches_per_epoch = math.ceil(len(dataset) / batch_size)
+        total_steps = epochs * math.ceil(batches_per_epoch / accum_steps)
+        _log(
+            f"Dataset ready: indexed | records={len(dataset):,} | "
+            f"estimated_optimizer_steps_per_epoch={math.ceil(batches_per_epoch / accum_steps):,}"
+        )
+    else:
+        # Default for streaming
+        total_steps = 1000000
+        _log(
+            "Dataset ready: streaming shards | epoch length unknown ahead of time; "
+            "progress will be reported from the loader and optimizer loop"
+        )
+
     carry = None
 
     for epoch in range(start_epoch, epochs):
-        if curriculum and epoch > start_epoch:
-            new_min_elo = min_elo + (epoch * 150)
-            if new_min_elo != current_min_elo:
-                _log(f"Curriculum: Increasing min_elo floor to {new_min_elo}")
-                current_min_elo = new_min_elo
-                loader, dataset = get_loader(current_min_elo)
+        desired_min_elo = _curriculum_min_elo(min_elo, epoch, curriculum)
+        if desired_min_elo != current_min_elo:
+            _log(f"Curriculum: Increasing min_elo floor to {desired_min_elo}")
+            current_min_elo = desired_min_elo
+            loader, dataset = get_loader(current_min_elo)
 
         model.train()
         running_loss = 0.0
@@ -422,6 +515,7 @@ def main():
     parser.add_argument("--curriculum", action="store_true")
     parser.add_argument("--checkpoint_dir", default=None)
     parser.add_argument("--resume_from", default=None)
+    parser.add_argument("--rerun", action="store_true")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--accum_steps", type=int, default=1)
@@ -435,6 +529,13 @@ def main():
     )
     args = parser.parse_args()
 
+    resume_from = resolve_resume_checkpoint(
+        checkpoint_dir=args.checkpoint_dir,
+        explicit_checkpoint=args.resume_from,
+        rerun=args.rerun,
+        logger=_log,
+    )
+
     train(
         data_path=args.data,
         config_name=args.config,
@@ -447,7 +548,7 @@ def main():
         min_elo=args.min_elo,
         curriculum=args.curriculum,
         checkpoint_dir=args.checkpoint_dir,
-        resume_from=args.resume_from,
+        resume_from=resume_from,
         device_str=args.device,
         use_wandb=args.wandb,
         accum_steps=args.accum_steps,

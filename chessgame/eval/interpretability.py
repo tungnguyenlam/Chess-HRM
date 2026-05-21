@@ -16,12 +16,20 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import chess
 
 from chessgame.encoding.board_encoder import encode_board
+
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    _PLOTTING = True
+except ImportError:
+    plt = None
+    sns = None
+    _PLOTTING = False
 
 
 @dataclass
@@ -64,6 +72,11 @@ def visualize_gab_bias(
     Plot the GAB attention bias matrix for a specific head.
     The sequence is [CLS, sq0, sq1, ..., sq63].
     """
+    if not _PLOTTING:
+        raise ImportError(
+            "matplotlib and seaborn are required for visualize_gab_bias()."
+        )
+
     bias_matrix = snapshot.bias[head_idx].cpu().numpy()
 
     plt.figure(figsize=(10, 8))
@@ -82,6 +95,11 @@ def plot_act_histogram(
     save_path: str,
 ):
     """Plot histogram of halt steps grouped by game phase."""
+    if not _PLOTTING:
+        raise ImportError(
+            "matplotlib and seaborn are required for plot_act_histogram()."
+        )
+
     phases = ["opening", "middlegame", "endgame"]
     data = {p: [r.halt_step for r in records if r.phase == p] for p in phases}
 

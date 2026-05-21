@@ -27,6 +27,11 @@ parser.add_argument(
     "--checkpoint", type=str, default=None, help="Path to checkpoint to resume from"
 )
 parser.add_argument(
+    "--rerun",
+    action="store_true",
+    help="Ignore existing checkpoints in checkpoint_dir and restart from epoch 1",
+)
+parser.add_argument(
     "--config",
     type=str,
     default="mac_mini",
@@ -120,7 +125,14 @@ forward_dtype = (
     args.forward_dtype if args.forward_dtype is not None else cfg.get("forward_dtype")
 )
 
-from chessgame.train.supervised import train
+from chessgame.train.supervised import resolve_resume_checkpoint, train
+
+resume_from = resolve_resume_checkpoint(
+    checkpoint_dir=args.checkpoint_dir,
+    explicit_checkpoint=args.checkpoint,
+    rerun=args.rerun,
+    logger=lambda message: print(message, flush=True),
+)
 
 train(
     data_path=args.data,
@@ -141,5 +153,5 @@ train(
     num_workers=num_workers,
     log_every_steps=log_every_steps,
     forward_dtype_str=forward_dtype,
-    resume_from=args.checkpoint,
+    resume_from=resume_from,
 )

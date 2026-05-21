@@ -1,6 +1,10 @@
 # Agent Guide — HRM-GAB Chess
 
-> **Read this file FIRST before touching any code.**
+> **CRITICAL: SESSION STARTUP PROTOCOL**
+> When starting a new session, you MUST immediately read the following files to establish context before taking any other action:
+> 1. `PLAN.md` - To understand the current project state, what is done, and what is next.
+> 2. `BACKLOG.md` - To understand recent experiments, failures, and plan changes.
+> 
 > This document orients you to the codebase, establishes workflow rules, and defines how to behave like a rigorous researcher — not a code monkey.
 
 # Reasoning & Problem-Solving Standards
